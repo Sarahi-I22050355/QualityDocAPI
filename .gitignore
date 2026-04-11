@@ -1,0 +1,5 @@
+[Bb]in/
+[Oo]bj/
+.vscode/
+appsettings.Development.json
+*.user
