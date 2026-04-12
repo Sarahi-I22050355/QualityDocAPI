@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using Microsoft.AspNetCore.Http; 
 
 namespace QualityDocAPI.DTOs
 {
@@ -11,10 +12,10 @@ namespace QualityDocAPI.DTOs
         [Required(ErrorMessage = "Necesitamos saber quién es el autor.")]
         public string Autor { get; set; } = string.Empty;
 
-        [Required(ErrorMessage = "El documento no puede estar vacío, agrega el contenido.")]
-        public string ContenidoTexto { get; set; } = string.Empty;
+        // Ambos son opcionales aquí, la validación ruda la haremos en el Controlador
+        public string? ContenidoTexto { get; set; } 
+        public IFormFile? Archivo { get; set; } 
 
-        // Las etiquetas son opcionales, así que no le ponemos [Required]
         public string[] Etiquetas { get; set; } = Array.Empty<string>();
     }
 }
