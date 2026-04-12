@@ -1,8 +1,10 @@
 using Microsoft.AspNetCore.Mvc;
 using QualityDocAPI.Models;
 using QualityDocAPI.DTOs;
-using QualityDocAPI.Data; // IMPORTANTE: Para acceder al Contexto de SQL
-using MongoDB.Driver;     // IMPORTANTE: Para acceder a MongoDB
+using QualityDocAPI.Data;
+using MongoDB.Driver;
+using System.Threading.Tasks;
+using System.Linq;
 
 namespace QualityDocAPI.Controllers
 {
@@ -10,74 +12,93 @@ namespace QualityDocAPI.Controllers
     [Route("api/[controller]")]
     public class DocumentosController : ControllerBase
     {
-        // Estas son las "llaves" de nuestras bases de datos
         private readonly SqlContext _sqlContext;
         private readonly IMongoCollection<DocumentoMongo> _mongoCollection;
 
-        // EL CONSTRUCTOR: Aquí es donde la API nos entrega las llaves al iniciar
         public DocumentosController(SqlContext sqlContext, IMongoClient mongoClient)
         {
             _sqlContext = sqlContext;
-
-            // Configuramos la conexión específica a la colección de Mongo
             var database = mongoClient.GetDatabase("QualityDocPolyglotDB");
-            _mongoCollection = database.GetCollection<DocumentoMongo>("Documentos");
-        }
+            _mongoCollection = database.GetCollection<DocumentoMongo>("documentosBusqueda");        }
 
+        // POST: api/Documentos
         [HttpPost]
-        public IActionResult SubirDocumento([FromBody] NuevoDocumentoDTO datosDePantalla)
+        public async Task<IActionResult> SubirDocumento([FromBody] NuevoDocumentoDTO datosDePantalla)
         {
-            // 1. Armamos el paquete para SQL Server
             var documentoParaSQL = new DocumentoSQL
             {
                 Titulo = datosDePantalla.Titulo,
-                Autor = datosDePantalla.Autor,
-                Estado = "Borrador",
-                FechaCreacion = DateTime.Now
+                Descripcion = datosDePantalla.ContenidoTexto, // Usamos tu contenido como descripción temporalmente
+                IdUsuario = 2,    // Laura Supervisora (de tus datos semilla)
+                IdCategoria = 1,  // Manual de Calidad
+                IdEstado = 1,     // Borrador
+                RutaArchivo = "/uploads/temp/archivo_falso.pdf",
+                NombreArchivo = "archivo_falso.pdf",
+                Extension = "pdf"
             };
-
-            // 2. Armamos el paquete para MongoDB
             var documentoParaMongo = new DocumentoMongo
             {
                 Titulo = datosDePantalla.Titulo,
-                ContenidoTexto = datosDePantalla.ContenidoTexto,
-                Etiquetas = datosDePantalla.Etiquetas
+                Descripcion = datosDePantalla.ContenidoTexto,
+                Categoria = "Manual de Calidad",
+                Autor = datosDePantalla.Autor,
+                Extension = "pdf",
+                Etiquetas = datosDePantalla.Etiquetas.Select(e => e.ToLower()).ToArray()            
             };
-
-            // TODO: Mañana conectaremos las líneas de guardado real:
-            // _sqlContext.Documentos.Add(documentoParaSQL);
-            // _mongoCollection.InsertOne(documentoParaMongo);
-
-            return Ok(new { 
-                Mensaje = "¡Éxito! El controlador recibió y separó los datos correctamente.",
-                DatosParaSQL = documentoParaSQL,
-                DatosParaMongo = documentoParaMongo
-            });
-        }
-
-        [HttpGet("buscar/{palabraClave}")]
-        public IActionResult BuscarDocumentos(string palabraClave)
-        {
-            // NORMALIZACIÓN: Convertimos a minúsculas para que la búsqueda sea eficiente
-            var busquedaNormalizada = palabraClave.ToLower();
-
-            // TODO: Mañana usaremos '_mongoCollection' para buscar datos reales.
-            var resultadosReales = new List<DocumentoMongo>(); 
-
-            if (resultadosReales.Count == 0)
+            try 
             {
+                // 1. Guardar en SQL Server (Metadatos)
+                _sqlContext.Documentos.Add(documentoParaSQL);
+                await _sqlContext.SaveChangesAsync();
+                
+                // Le pasamos el ID recién creado en SQL al documento de Mongo
+                documentoParaMongo.SqlId = documentoParaSQL.Id;
+
+                // 2. Guardar en MongoDB (Contenido pesado y etiquetas)
+                // Usamos el ID de SQL para vincularlos si fuera necesario
+                await _mongoCollection.InsertOneAsync(documentoParaMongo);
+
                 return Ok(new { 
-                    Mensaje = $"No se encontró ningún documento con la etiqueta: '{busquedaNormalizada}'.", 
-                    TotalEncontrados = 0,
-                    Datos = resultadosReales 
+                    Mensaje = "¡Éxito total! Datos guardados en SQL y Mongo.",
+                    IdGeneradoEnSQL = documentoParaSQL.Id 
                 });
             }
+            catch (Exception ex)
+            {
+                // Si Axel no ha prendido el servidor, caerás aquí:
+                return StatusCode(500, new { 
+                    Error = "No se pudo conectar con las bases de datos.", 
+                    Detalle = ex.Message 
+                });
+            }
+        }
 
-            return Ok(new { 
-                Mensaje = $"Búsqueda exitosa. Resultados para: '{busquedaNormalizada}'",
-                TotalEncontrados = resultadosReales.Count,
-                Datos = resultadosReales 
-            });
+        // GET: api/Documentos/buscar/{palabraClave}
+        [HttpGet("buscar/{palabraClave}")]
+        public async Task<IActionResult> BuscarDocumentos(string palabraClave)
+        {
+            var busquedaNormalizada = palabraClave.ToLower();
+
+            try 
+            {
+                // Buscamos en Mongo documentos que tengan la etiqueta (ignora mayúsculas)
+                var filtro = Builders<DocumentoMongo>.Filter.AnyEq(d => d.Etiquetas, busquedaNormalizada);
+                var resultados = await _mongoCollection.Find(filtro).ToListAsync();
+
+                if (resultados.Count == 0)
+                {
+                    return NotFound(new { Mensaje = $"No hay resultados para: '{busquedaNormalizada}'" });
+                }
+
+                return Ok(new { 
+                    Mensaje = "Búsqueda exitosa en BD real",
+                    Resultados = resultados 
+                });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { Error = "Error de conexión", Detalle = ex.Message });
+            }
         }
     }
 }
