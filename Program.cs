@@ -51,7 +51,9 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("PaseVIP", policy =>
     {
-        policy.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod();
+        policy.AllowAnyOrigin()
+              .AllowAnyHeader()
+              .AllowAnyMethod();
     });
 });
 
@@ -93,7 +95,7 @@ if (app.Environment.IsDevelopment())
 app.UseHttpsRedirection();
 
 // --- EL ORDEN DE ESTAS LÍNEAS ES VITAL ---
-app.UseCors("PaseVIP");       // 1. Deja entrar al frontend
+app.UseCors("PaseVIP");      // 1. Deja entrar al frontend
 app.UseAuthentication();     // 2. Revisa el gafete (Token)
 app.UseAuthorization();      // 3. Revisa si tienes permiso para esa zona específica
 
