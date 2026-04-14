@@ -18,6 +18,8 @@ using iText.Layout.Element;
 using iText.Layout.Properties;
 using iText.Kernel.Font;
 using iText.IO.Font.Constants;
+using iText.Html2pdf; // <-- NUEVA LIBRERÍA PARA TRADUCIR HTML A PDF
+using System.Security.Claims; // Añadido para acceder a ClaimTypes de forma limpia
 
 namespace QualityDocAPI.Controllers
 {
@@ -65,7 +67,6 @@ namespace QualityDocAPI.Controllers
                 {
                     using (var stream = datosDePantalla.Archivo.OpenReadStream())
                     {
-                        // CORRECCIÓN 1: Se especifica la ruta completa a UglyToad.PdfPig.PdfDocument
                         using (var pdf = UglyToad.PdfPig.PdfDocument.Open(stream))                        
                         {
                             foreach (var page in pdf.GetPages())
@@ -118,7 +119,7 @@ namespace QualityDocAPI.Controllers
                     Descripcion = tieneArchivo ? "Documento cargado vía PDF" : datosDePantalla.ContenidoTexto,
                     IdUsuario = idUsuarioReal, 
                     IdCategoria = datosDePantalla.IdCategoria,
-                    IdEstado = 1,     
+                    IdEstado = 1, // <--- Estado 1: "En Revisión" por defecto     
                     RutaArchivo = rutaFinalEnLinux,
                     NombreArchivo = nombreArchivoFinal,
                     Extension = tieneArchivo ? "pdf" : "txt"
@@ -165,30 +166,64 @@ namespace QualityDocAPI.Controllers
             try
             {
                 var builder = Builders<DocumentoMongo>.Filter;
+                
+                // --- BÚSQUEDA NORMAL EN MONGO (INCLUYE AUTOR) ---
                 var filtro = builder.Or(
                     builder.AnyEq(d => d.Etiquetas, busquedaNormalizada),
                     builder.Regex(d => d.Titulo, new MongoDB.Bson.BsonRegularExpression(busquedaNormalizada, "i")),
-                    builder.Regex(d => d.Descripcion, new MongoDB.Bson.BsonRegularExpression(busquedaNormalizada, "i"))
+                    builder.Regex(d => d.Descripcion, new MongoDB.Bson.BsonRegularExpression(busquedaNormalizada, "i")),
+                    builder.Regex(d => d.Autor, new MongoDB.Bson.BsonRegularExpression(busquedaNormalizada, "i")) 
                 );
 
-                var resultados = await _mongoCollection.Find(filtro).ToListAsync();
-                var rolUsuario = User.FindFirst("idRol")?.Value ?? User.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value;
+                var resultadosMongo = await _mongoCollection.Find(filtro).ToListAsync();
 
-                if (rolUsuario == "3")
-                {
-                    var idsAprobados = _sqlContext.Documentos
-                        .Where(d => d.IdEstado == 2)
-                        .Select(d => d.Id)
-                        .ToList();
-                    resultados = resultados.Where(m => idsAprobados.Contains(m.SqlId)).ToList();
-                }
-
-                if (resultados.Count == 0)
+                if (resultadosMongo.Count == 0)
                 {
                     return NotFound(new { Mensaje = $"No hay resultados para: '{busquedaNormalizada}'" });
                 }
 
-                return Ok(new { Mensaje = "Búsqueda exitosa", Resultados = resultados });
+                // --- LÓGICA NUEVA: MANEJO DE RESULTADOS SEGÚN EL ROL ---
+                
+                // Obtenemos qué rol está haciendo la búsqueda
+                var rolUsuario = User.FindFirst("idRol")?.Value ?? User.FindFirst(ClaimTypes.Role)?.Value;
+
+                // Extraemos los IDs de SQL para buscar sus estados reales
+                var idsMongo = resultadosMongo.Select(r => r.SqlId).ToList();
+                var documentosSQL = _sqlContext.Documentos.Where(d => idsMongo.Contains(d.Id)).ToList();
+
+                // LÓGICA PARA OPERARIOS (Rol 3)
+                if (rolUsuario == "3")
+                {
+                    // Solo mostramos los que tienen IdEstado == 2 (Aprobados)
+                    var idsAprobados = documentosSQL.Where(d => d.IdEstado == 2).Select(d => d.Id).ToList();
+                    var resultadosFinales = resultadosMongo.Where(m => idsAprobados.Contains(m.SqlId)).ToList();
+
+                    if (resultadosFinales.Count == 0)
+                        return NotFound(new { Mensaje = "No hay documentos aprobados que coincidan con tu búsqueda." });
+
+                    return Ok(new { Mensaje = "Búsqueda exitosa", Resultados = resultadosFinales });
+                }
+                
+                // LÓGICA PARA ADMINS (Rol 1) Y SUPERVISORES (Rol 2)
+                else
+                {
+                    // Formateamos la respuesta para incluir el estado actual del documento
+                    var resultadosConEstado = resultadosMongo.Select(docMongo => 
+                    {
+                        var docSql = documentosSQL.FirstOrDefault(d => d.Id == docMongo.SqlId);
+                        string nombreEstado = docSql?.IdEstado switch
+                        {
+                            1 => "En Revisión",
+                            2 => "Aprobado",
+                            3 => "Obsoleto",
+                            _ => "Desconocido"
+                        };
+
+                        return new { Documento = docMongo, Estado = nombreEstado };
+                    }).ToList();
+
+                    return Ok(new { Mensaje = "Búsqueda exitosa", Resultados = resultadosConEstado });
+                }
             }
             catch (Exception ex)
             {
@@ -207,7 +242,7 @@ namespace QualityDocAPI.Controllers
                 if (documento == null) return NotFound(new { Mensaje = "Documento no encontrado." });
                 if (documento.IdEstado == 2) return BadRequest(new { Mensaje = "Ya está aprobado." });
 
-                documento.IdEstado = 2;
+                documento.IdEstado = 2; // Estado 2 es "Aprobado"
                 await _sqlContext.SaveChangesAsync();
 
                 return Ok(new { Mensaje = "¡Documento aprobado!", IdDocumento = documento.Id });
@@ -219,7 +254,6 @@ namespace QualityDocAPI.Controllers
         }
 
         // GET: api/Documentos/descargar/{id}
-        // IMPLEMENTACIÓN MEJORADA: Descarga SIEMPRE en PDF
         [Authorize] 
         [HttpGet("descargar/{id}")]
         public async Task<IActionResult> DescargarDocumento(int id)
@@ -228,6 +262,16 @@ namespace QualityDocAPI.Controllers
             {
                 var documento = await _sqlContext.Documentos.FindAsync(id);
                 if (documento == null) return NotFound(new { Mensaje = "Documento no encontrado." });
+
+                // --- LÓGICA NUEVA: BLOQUEO DE SEGURIDAD PARA OPERARIOS ---
+                var rolUsuario = User.FindFirst("idRol")?.Value ?? User.FindFirst(ClaimTypes.Role)?.Value;
+                
+                // Si es operario (3) y el documento NO está aprobado (2), bloqueamos la descarga
+                if (rolUsuario == "3" && documento.IdEstado != 2)
+                {
+                    return StatusCode(403, new { Mensaje = "Acceso denegado: Solo puedes descargar documentos aprobados." });
+                }
+                // ----------------------------------------------------------
 
                 var memoryStream = new MemoryStream();
 
@@ -245,41 +289,58 @@ namespace QualityDocAPI.Controllers
                         client.DownloadFile(documento.RutaArchivo, memoryStream);
                         client.Disconnect();
                     }
+                    
                     memoryStream.Position = 0; 
-                    return File(memoryStream, "application/pdf", documento.NombreArchivo);
+
+                    string nombreBonito = documento.NombreArchivo;
+                    int indiceGuionBajo = nombreBonito.IndexOf('_');
+                    
+                    if (indiceGuionBajo >= 0)
+                    {
+                        nombreBonito = nombreBonito.Substring(indiceGuionBajo + 1);
+                    }
+                    else
+                    {
+                        nombreBonito = $"{documento.Titulo}.pdf";
+                    }
+
+                    return File(memoryStream, "application/pdf", nombreBonito);
                 }
                 
-                // CASO 2: Texto en BD -> Generación de PDF al vuelo con iText7
+                // CASO 2: Texto en BD -> Generación de PDF con Formato Profesional (HTML a PDF)
                 else
                 {
-                    // 1. Validaciones ultra-seguras (Si vienen vacíos, iText explota por "Documento sin páginas")
                     string tituloTexto = string.IsNullOrWhiteSpace(documento.Titulo) ? "Documento Sin Titulo" : documento.Titulo;
                     string contenidoTexto = string.IsNullOrWhiteSpace(documento.Descripcion) ? "El documento no tiene contenido." : documento.Descripcion;
                     
+                    // Creamos la plantilla HTML con el texto que vino de la base de datos
+                    string htmlElegante = $@"
+                        <html>
+                        <head>
+                            <style>
+                                body {{ font-family: 'Helvetica', sans-serif; padding: 30px; color: #333; }}
+                                h1 {{ color: #2c3e50; text-align: center; border-bottom: 2px solid #3498db; padding-bottom: 10px; }}
+                                .contenido {{ font-size: 12pt; line-height: 1.6; margin-top: 20px; }}
+                                .footer {{ margin-top: 50px; font-size: 8pt; color: #7f8c8d; text-align: center; border-top: 1px solid #eee; padding-top: 10px; }}
+                            </style>
+                        </head>
+                        <body>
+                            <h1>{tituloTexto}</h1>
+                            <div class='contenido'>
+                                {contenidoTexto}
+                            </div>
+                            <div class='footer'>
+                                Documento generado automáticamente por QualityDoc System - {DateTime.Now:dd/MM/yyyy}
+                            </div>
+                        </body>
+                        </html>";
+
                     byte[] pdfBytes;
 
-                    // 2. Usar un stream limpio y exclusivo para iText
                     using (var msPdf = new MemoryStream())
                     {
-                        var writer = new PdfWriter(msPdf);
-                        var pdf = new iText.Kernel.Pdf.PdfDocument(writer);
-                        var document = new Document(pdf);
-
-                        // 3. Quitamos la fuente personalizada temporalmente. Solo texto puro.
-                        document.Add(new Paragraph(tituloTexto)
-                            .SetFontSize(18)
-                            .SetTextAlignment(TextAlignment.CENTER));
-                            
-                        document.Add(new Paragraph("\n")); // Salto de línea
-                        
-                        document.Add(new Paragraph(contenidoTexto)
-                            .SetFontSize(11)
-                            .SetTextAlignment(TextAlignment.JUSTIFIED));
-
-                        // 4. Cerramos el documento
-                        document.Close();
-                        
-                        // 5. Extraemos los bytes
+                        // La magia ocurre aquí: Convertimos el HTML directamente al PDF
+                        HtmlConverter.ConvertToPdf(htmlElegante, msPdf);
                         pdfBytes = msPdf.ToArray();
                     }
 
@@ -288,17 +349,15 @@ namespace QualityDocAPI.Controllers
                     return File(pdfBytes, "application/pdf", nombreArchivoPdf);
                 }
              }
-
             catch (Exception ex)
             {
-                // ATRAPAMOS EL ERROR REAL OCULTO:
                 string causaOculta = ex.InnerException != null ? ex.InnerException.Message : "No hay error interno detallado.";
                 
                 return StatusCode(500, new 
                 { 
                     Error = "Error en la descarga", 
                     Detalle = ex.Message,
-                    CausaReal = causaOculta, // <-- Esto nos dirá la verdad
+                    CausaReal = causaOculta,
                     Pista = ex.StackTrace?.Split('\n').FirstOrDefault() 
                 });
             }
