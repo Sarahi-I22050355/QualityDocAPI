@@ -3,7 +3,7 @@ using System.ComponentModel.DataAnnotations;
 
 namespace QualityDocAPI.Models
 {
-    [Table("Documentos")] // Asegura que busque la tabla correcta
+    [Table("Documentos")]
     public class DocumentoSQL
     {
         [Key]
@@ -11,13 +11,17 @@ namespace QualityDocAPI.Models
         public int Id { get; set; }
 
         [Column("id_usuario")]
-        public int IdUsuario { get; set; } 
+        public int IdUsuario { get; set; }
 
         [Column("id_categoria")]
         public int IdCategoria { get; set; }
 
         [Column("id_estado")]
         public int IdEstado { get; set; }
+
+        // Área a la que pertenece el documento. Se hereda del usuario que lo sube.
+        [Column("id_area")]
+        public int? IdArea { get; set; }
 
         [Column("titulo")]
         public string Titulo { get; set; } = string.Empty;

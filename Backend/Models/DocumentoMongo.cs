@@ -29,5 +29,10 @@ namespace QualityDocAPI.Models
 
         [BsonElement("etiquetas")]
         public string[] Etiquetas { get; set; } = Array.Empty<string>();
+
+        // Nombre del área propietaria del documento. Se usa para filtrar búsquedas.
+        // Los usuarios del área General ignoran este campo y ven todo.
+        [BsonElement("area")]
+        public string Area { get; set; } = string.Empty;
     }
 }
