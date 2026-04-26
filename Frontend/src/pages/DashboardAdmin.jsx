@@ -1,24 +1,36 @@
-import { useAuth } from '../context/AuthContext'
-import { useNavigate } from 'react-router-dom'
+import { useState } from 'react'
+import Layout from '../components/Layout'
+import SeccionDocumentos from './admin/SeccionDocumentos'
+import SeccionUsuarios   from './admin/SeccionUsuarios'
+import SeccionAreas      from './admin/SeccionAreas'
+import SeccionLogs       from './admin/SeccionLogs'
 
-// PLACEHOLDER — este archivo se reemplazará con el dashboard completo.
+const SECCIONES = [
+  { id: 'documentos', label: 'Documentos', icono: '📄' },
+  { id: 'usuarios',   label: 'Usuarios',   icono: '👥' },
+  { id: 'areas',      label: 'Áreas',      icono: '🏢' },
+  { id: 'logs',       label: 'Auditoría',  icono: '📊' },
+]
+
 export default function DashboardAdmin() {
-  const { usuario, logout } = useAuth()
-  const navigate = useNavigate()
+  const [seccion, setSeccion] = useState('documentos')
 
-  const handleLogout = () => {
-    logout()
-    navigate('/login')
+  const renderSeccion = () => {
+    if (seccion === 'documentos') return <SeccionDocumentos />
+    if (seccion === 'usuarios')   return <SeccionUsuarios />
+    if (seccion === 'areas')      return <SeccionAreas />
+    if (seccion === 'logs')       return <SeccionLogs />
+    return null
   }
 
   return (
-    <div style={{ padding: '2rem' }}>
-      <h1>Dashboard Admin</h1>
-      <p>Bienvenido, {usuario?.nombre}</p>
-      <p>Área: {usuario?.area}</p>
-      <button onClick={handleLogout} style={{ marginTop: '1rem' }}>
-        Cerrar sesión
-      </button>
-    </div>
+    <Layout
+      titulo="QualityDoc"
+      secciones={SECCIONES}
+      seccionActiva={seccion}
+      setSeccion={setSeccion}
+    >
+      {renderSeccion()}
+    </Layout>
   )
 }

@@ -1,24 +1,25 @@
-import { useAuth } from '../context/AuthContext'
-import { useNavigate } from 'react-router-dom'
+import { useState } from 'react'
+import Layout from '../components/Layout'
+import SeccionDocumentosSupervisor from './supervisor/SeccionDocumentosSupervisor'
 
-// PLACEHOLDER — este archivo se reemplazará con el dashboard completo.
+// Versiones ya están integradas dentro de SeccionDocumentosSupervisor
+// como un modal que se abre desde los resultados de búsqueda.
+// No se necesita sección separada.
+const SECCIONES = [
+  { id: 'documentos', label: 'Documentos', icono: '📄' },
+]
+
 export default function DashboardSupervisor() {
-  const { usuario, logout } = useAuth()
-  const navigate = useNavigate()
-
-  const handleLogout = () => {
-    logout()
-    navigate('/login')
-  }
+  const [seccion, setSeccion] = useState('documentos')
 
   return (
-    <div style={{ padding: '2rem' }}>
-      <h1>Dashboard Supervisor</h1>
-      <p>Bienvenido, {usuario?.nombre}</p>
-      <p>Área: {usuario?.area}</p>
-      <button onClick={handleLogout} style={{ marginTop: '1rem' }}>
-        Cerrar sesión
-      </button>
-    </div>
+    <Layout
+      titulo="QualityDoc"
+      secciones={SECCIONES}
+      seccionActiva={seccion}
+      setSeccion={setSeccion}
+    >
+      <SeccionDocumentosSupervisor />
+    </Layout>
   )
 }

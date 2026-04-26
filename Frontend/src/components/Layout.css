@@ -1,0 +1,184 @@
+/* ─── Estructura general ──────────────────────────────────────────── */
+.layout {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  background: #f0f2f5;
+}
+
+/* ─── Barra superior ──────────────────────────────────────────────── */
+.layout-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #ffffff;
+  border-bottom: 1px solid #e0e0e0;
+  padding: 0 1.25rem;
+  height: 56px;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+.header-izq {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.header-titulo {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #1a1a2e;
+}
+
+.menu-toggle {
+  background: none;
+  border: none;
+  font-size: 1.25rem;
+  cursor: pointer;
+  color: #6b7280;
+  padding: 4px 8px;
+  border-radius: 6px;
+  display: none; /* visible solo en móvil */
+}
+
+.header-der {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.header-usuario {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #374151;
+  line-height: 1.3;
+}
+
+.header-usuario small {
+  font-size: 0.75rem;
+  font-weight: 400;
+  color: #6b7280;
+}
+
+.btn-logout {
+  padding: 6px 14px;
+  background: none;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  font-size: 0.875rem;
+  color: #374151;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.btn-logout:hover {
+  background: #fee2e2;
+  border-color: #fca5a5;
+  color: #b91c1c;
+}
+
+/* ─── Cuerpo (sidebar + contenido) ───────────────────────────────── */
+.layout-cuerpo {
+  display: flex;
+  flex: 1;
+}
+
+/* ─── Menú lateral ────────────────────────────────────────────────── */
+.layout-sidebar {
+  width: 220px;
+  min-width: 220px;
+  background: #ffffff;
+  border-right: 1px solid #e0e0e0;
+  padding: 1rem 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.layout-sidebar nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 0.75rem;
+}
+
+.sidebar-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  cursor: pointer;
+  color: #4b5563;
+  font-size: 0.9rem;
+  text-align: left;
+  transition: all 0.15s;
+  width: 100%;
+}
+
+.sidebar-item:hover {
+  background: #f3f4f6;
+  color: #111827;
+}
+
+.sidebar-item.activo {
+  background: #ede9fe;
+  color: #4f46e5;
+  font-weight: 500;
+}
+
+.sidebar-icono {
+  font-size: 1.1rem;
+  width: 22px;
+  text-align: center;
+}
+
+.sidebar-label {
+  flex: 1;
+}
+
+/* ─── Contenido principal ─────────────────────────────────────────── */
+.layout-main {
+  flex: 1;
+  padding: 1.5rem;
+  overflow-y: auto;
+}
+
+/* ─── Overlay móvil ───────────────────────────────────────────────── */
+.sidebar-overlay {
+  display: none;
+}
+
+/* ─── Responsive ──────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .menu-toggle { display: block; }
+
+  .layout-sidebar {
+    position: fixed;
+    top: 56px;
+    left: -220px;
+    height: calc(100vh - 56px);
+    z-index: 200;
+    transition: left 0.25s ease;
+    box-shadow: 2px 0 8px rgba(0,0,0,0.1);
+  }
+
+  .layout-sidebar.abierto {
+    left: 0;
+  }
+
+  .sidebar-overlay {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.3);
+    z-index: 150;
+    top: 56px;
+  }
+}

@@ -854,6 +854,117 @@ namespace QualityDocAPI.Controllers
             }
         }
 
+        // ═══════════════════════════════════════════════════════════════════
+        // GET: api/Documentos/{id}/versiones/{numeroVersion}/descargar
+        // Descarga una versión específica del documento desde el historial.
+        //
+        // Diferencia con DescargarDocumento:
+        //   - DescargarDocumento → siempre descarga la versión ACTUAL (tabla Documentos)
+        //   - Este endpoint      → descarga cualquier versión del historial (tabla VersionesDocumento)
+        //
+        // Mismas reglas de acceso que DescargarDocumento:
+        //   - Admin / área General: sin restricciones.
+        //   - Supervisor: su área + áreas Generales, cualquier estado.
+        //   - Operario: su área + áreas Generales, solo si el doc está Aprobado.
+        //     (Un operario no debería ver versiones históricas, pero si intentara
+        //      acceder directamente se bloquea igual que en la descarga normal.)
+        // ═══════════════════════════════════════════════════════════════════
+        [Authorize(Policy = "SubeYAprueba")]
+        [HttpGet("{id}/versiones/{numeroVersion}/descargar")]
+        public async Task<IActionResult> DescargarVersionEspecifica(int id, short numeroVersion)
+        {
+            try
+            {
+                // Verificar que el documento existe y que el usuario tiene acceso
+                var documento = await _sqlContext.Documentos.FindAsync(id);
+                if (documento == null)
+                    return NotFound(new { Mensaje = "Documento no encontrado." });
+
+                var (idUsuario, rol, esGeneral, idAreaToken) = ObtenerDatosToken();
+
+                // Acceso de lectura: su área + áreas Generales
+                if (!TieneAccesoParaVer(rol, esGeneral, idAreaToken, documento.IdArea))
+                    return StatusCode(403, new { Mensaje = "Este documento no pertenece a tu área." });
+
+                // Buscar la versión específica en el historial
+                var version = _sqlContext.VersionesDocumento
+                    .FirstOrDefault(v => v.IdDocumento == id && v.NumeroVersion == numeroVersion);
+
+                if (version == null)
+                    return NotFound(new { Mensaje = $"No existe la versión {numeroVersion} para este documento." });
+
+                var memoryStream = new MemoryStream();
+
+                if (version.RutaArchivo != "Sin archivo físico" && !string.IsNullOrWhiteSpace(version.RutaArchivo))
+                {
+                    var sftpSettings = _config.GetSection("SftpConfig");
+                    using (var client = new SftpClient(
+                        sftpSettings["Host"]     ?? "localhost",
+                        int.TryParse(sftpSettings["Port"], out int p) ? p : 2222,
+                        sftpSettings["Username"] ?? "sarahi",
+                        sftpSettings["Password"] ?? "12345"))
+                    {
+                        client.Connect();
+                        client.DownloadFile(version.RutaArchivo, memoryStream);
+                        client.Disconnect();
+                    }
+                    memoryStream.Position = 0;
+
+                    // Limpiar el UUID del nombre del archivo
+                    string nombreBonito = version.NombreArchivo;
+                    int    idx          = nombreBonito.IndexOf('_');
+                    nombreBonito = idx >= 0
+                        ? $"v{numeroVersion}_{nombreBonito.Substring(idx + 1)}"
+                        : $"v{numeroVersion}_{documento.Titulo}.pdf";
+
+                    await RegistrarLogAsync(idUsuario, id, "DESCARGÓ", $"v{numeroVersion} - {nombreBonito}");
+                    return File(memoryStream, "application/pdf", nombreBonito);
+                }
+                else
+                {
+                    // Versión de texto — generamos PDF con el contenido de esa versión
+                    string titulo    = string.IsNullOrWhiteSpace(documento.Titulo) ? "Documento Sin Título" : documento.Titulo;
+                    string contenido = string.IsNullOrWhiteSpace(version.ComentarioCambio)
+                        ? "Versión sin contenido de texto."
+                        : version.ComentarioCambio;
+
+                    string html = $@"
+                        <html><head><style>
+                            body {{ font-family: 'Helvetica', sans-serif; padding: 30px; color: #333; }}
+                            h1   {{ color: #2c3e50; text-align: center; border-bottom: 2px solid #3498db; padding-bottom: 10px; }}
+                            .version-badge {{ text-align:center; margin: 8px 0 20px; color: #7f8c8d; font-size: 10pt; }}
+                            .contenido {{ font-size: 12pt; line-height: 1.6; margin-top: 20px; }}
+                            .footer {{ margin-top: 50px; font-size: 8pt; color: #7f8c8d; text-align: center; border-top: 1px solid #eee; padding-top: 10px; }}
+                        </style></head><body>
+                            <h1>{titulo}</h1>
+                            <div class='version-badge'>Versión {numeroVersion} — {version.FechaVersion:dd/MM/yyyy}</div>
+                            <div class='contenido'>{contenido}</div>
+                            <div class='footer'>Documento generado por QualityDoc System - {DateTime.Now:dd/MM/yyyy}</div>
+                        </body></html>";
+
+                    byte[] pdfBytes;
+                    using (var ms = new MemoryStream())
+                    {
+                        HtmlConverter.ConvertToPdf(html, ms);
+                        pdfBytes = ms.ToArray();
+                    }
+
+                    var nombre = $"v{numeroVersion}_{string.Join("_", titulo.Split(Path.GetInvalidFileNameChars()))}.pdf";
+                    await RegistrarLogAsync(idUsuario, id, "DESCARGÓ", $"v{numeroVersion} - {nombre}");
+                    return File(pdfBytes, "application/pdf", nombre);
+                }
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new
+                {
+                    Error     = "Error al descargar la versión.",
+                    Detalle   = ex.Message,
+                    CausaReal = ex.InnerException?.Message ?? "Sin error interno."
+                });
+            }
+        }
+
         // ─────────────────────────────────────────────────────────────────
         // GET: api/Documentos/ver-todo-mongo — solo para debug en desarrollo.
         // Antes de producción cambiar [AllowAnonymous] por [Authorize(Policy = "SoloAdmin")]
