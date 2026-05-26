@@ -67,8 +67,10 @@ export default function SeccionUsuarios() {
   }
 
   const labelRol = (rol) => {
-    if (rol === 'Administrador' || rol === 1) return <span className="badge badge-morado">Admin</span>
-    if (rol === 'Supervisor'    || rol === 2) return <span className="badge badge-azul">Supervisor</span>
+    const r = typeof rol === 'string' ? rol.toLowerCase() : ''
+    if (r === 'admin' || r === 'administrador' || rol === 1) return <span className="badge badge-morado">Admin</span>
+    if (r === 'supervisor'    || rol === 2) return <span className="badge badge-azul">Supervisor</span>
+    if (r === 'revisor'       || rol === 4) return <span className="badge badge-naranja">Revisor</span>
     return <span className="badge badge-gris">Operario</span>
   }
 
@@ -175,6 +177,7 @@ export default function SeccionUsuarios() {
                   >
                     <option value={2}>Supervisor</option>
                     <option value={3}>Operario</option>
+                    <option value={4}>Revisor</option>
                     <option value={1}>Administrador</option>
                   </select>
                 </div>

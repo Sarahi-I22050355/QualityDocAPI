@@ -178,8 +178,28 @@ namespace QualityDocAPI.Controllers
                 }
                 else
                 {
+                    // Guardar el HTML del editor como archivo .html en SFTP
+                    // Asi cada version conserva su propio contenido y formato
                     textoExtraido = datosDePantalla.ContenidoTexto!;
                     tamanoBytes   = System.Text.Encoding.UTF8.GetByteCount(textoExtraido);
+
+                    var sftpCfgTxt   = _config.GetSection("SftpConfig");
+                    nombreArchivoFinal = $"{Guid.NewGuid()}.html";
+                    string remotePathTxt = sftpCfgTxt["RemotePath"] ?? "/uploads";
+                    rutaFinalEnLinux   = $"{remotePathTxt}/{nombreArchivoFinal}";
+
+                    using (var clientTxt = new SftpClient(
+                        sftpCfgTxt["Host"]     ?? "localhost",
+                        int.TryParse(sftpCfgTxt["Port"], out int pTxt) ? pTxt : 2222,
+                        sftpCfgTxt["Username"] ?? "sarahi",
+                        sftpCfgTxt["Password"] ?? "12345"))
+                    {
+                        clientTxt.Connect();
+                        var htmlBytes = System.Text.Encoding.UTF8.GetBytes(textoExtraido);
+                        using (var msTxt = new MemoryStream(htmlBytes))
+                            clientTxt.UploadFile(msTxt, rutaFinalEnLinux);
+                        clientTxt.Disconnect();
+                    }
                 }
 
                 string nombreCategoriaMongo = datosDePantalla.IdCategoria switch
@@ -546,8 +566,9 @@ namespace QualityDocAPI.Controllers
 
         // ═══════════════════════════════════════════════════════════════════
         // GET: api/Documentos/{id}/flujo
+        // Cualquier usuario autenticado puede ver el flujo (el filtro de área se aplica adentro)
         // ═══════════════════════════════════════════════════════════════════
-        [Authorize(Policy = "SubeYAprueba")]
+        [Authorize]
         [HttpGet("{id}/flujo")]
         public async Task<IActionResult> ObtenerFlujoPorDocumento(int id)
         {
@@ -645,10 +666,16 @@ namespace QualityDocAPI.Controllers
                 if (rol == "3" && documento.IdEstado != 2)
                     return StatusCode(403, new { Mensaje = "Solo puedes descargar documentos aprobados." });
 
-                var memoryStream = new MemoryStream();
+                string titulo = string.IsNullOrWhiteSpace(documento.Titulo) ? "Documento Sin Título" : documento.Titulo;
+                var   nombreSalida = string.Join("_", titulo.Split(Path.GetInvalidFileNameChars())) + ".pdf";
 
-                if (documento.RutaArchivo != "Sin archivo físico")
+                // ── Archivo PDF real en SFTP ──────────────────────────────────────
+                if (!string.IsNullOrEmpty(documento.RutaArchivo)
+                    && documento.RutaArchivo != "Sin archivo físico"
+                    && (documento.RutaArchivo.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase)
+                        || documento.Extension == "pdf"))
                 {
+                    var memoryStream = new MemoryStream();
                     var sftpSettings = _config.GetSection("SftpConfig");
                     using (var client = new SftpClient(
                         sftpSettings["Host"]     ?? "localhost",
@@ -663,39 +690,33 @@ namespace QualityDocAPI.Controllers
                     memoryStream.Position = 0;
 
                     string nombreBonito = documento.NombreArchivo;
-                    int    idx          = nombreBonito.IndexOf('_');
-                    nombreBonito = idx >= 0 ? nombreBonito.Substring(idx + 1) : $"{documento.Titulo}.pdf";
+                    int    idx2         = nombreBonito.IndexOf('_');
+                    nombreBonito = idx2 >= 0 ? nombreBonito.Substring(idx2 + 1) : $"{titulo}.pdf";
 
                     await RegistrarLogAsync(idUsuario, id, "DESCARGÓ", nombreBonito);
                     return File(memoryStream, "application/pdf", nombreBonito);
                 }
-                else
+
+                // ── Archivo HTML del editor en SFTP (conserva formato y colores) ──
+                if (!string.IsNullOrEmpty(documento.RutaArchivo)
+                    && documento.RutaArchivo != "Sin archivo físico"
+                    && documento.RutaArchivo.EndsWith(".html", StringComparison.OrdinalIgnoreCase))
                 {
-                    string titulo    = string.IsNullOrWhiteSpace(documento.Titulo)      ? "Documento Sin Título"             : documento.Titulo;
-                    string contenido = string.IsNullOrWhiteSpace(documento.Descripcion) ? "El documento no tiene contenido." : documento.Descripcion;
+                    var pdfBytesHtml = await HtmlSftpAPDF(documento.RutaArchivo, titulo);
+                    await RegistrarLogAsync(idUsuario, id, "DESCARGÓ", nombreSalida);
+                    return File(pdfBytesHtml, "application/pdf", nombreSalida);
+                }
 
-                    string html = $@"
-                        <html><head><style>
-                            body {{ font-family: 'Helvetica', sans-serif; padding: 30px; color: #333; }}
-                            h1   {{ color: #2c3e50; text-align: center; border-bottom: 2px solid #3498db; padding-bottom: 10px; }}
-                            .contenido {{ font-size: 12pt; line-height: 1.6; margin-top: 20px; }}
-                            .footer {{ margin-top: 50px; font-size: 8pt; color: #7f8c8d; text-align: center; border-top: 1px solid #eee; padding-top: 10px; }}
-                        </style></head><body>
-                            <h1>{titulo}</h1>
-                            <div class='contenido'>{contenido}</div>
-                            <div class='footer'>Documento generado por QualityDoc System - {DateTime.Now:dd/MM/yyyy}</div>
-                        </body></html>";
-
-                    byte[] pdfBytes;
-                    using (var ms = new MemoryStream())
-                    {
-                        HtmlConverter.ConvertToPdf(html, ms);
-                        pdfBytes = ms.ToArray();
-                    }
-
-                    var nombre = string.Join("_", titulo.Split(Path.GetInvalidFileNameChars())) + ".pdf";
-                    await RegistrarLogAsync(idUsuario, id, "DESCARGÓ", nombre);
-                    return File(pdfBytes, "application/pdf", nombre);
+                // ── Fallback: placeholder para docs sin archivo (compatibilidad histórica) ──
+                {
+                    string contenido = string.IsNullOrWhiteSpace(documento.Descripcion)
+                        ? "El documento no tiene contenido."
+                        : documento.Descripcion;
+                    string htmlFallback = ConstruirHtmlParaPDF(titulo, contenido);
+                    using var msFallback = new MemoryStream();
+                    HtmlConverter.ConvertToPdf(htmlFallback, msFallback);
+                    await RegistrarLogAsync(idUsuario, id, "DESCARGÓ", nombreSalida);
+                    return File(msFallback.ToArray(), "application/pdf", nombreSalida);
                 }
             }
             catch (Exception ex)
@@ -766,8 +787,27 @@ namespace QualityDocAPI.Controllers
                 }
                 else
                 {
+                    // Guardar el HTML del editor como archivo .html en SFTP
                     textoExtraido = datos.ContenidoTexto!;
                     tamanoBytes   = System.Text.Encoding.UTF8.GetByteCount(textoExtraido);
+
+                    var sftpCfgVer   = _config.GetSection("SftpConfig");
+                    nombreArchivoNuevo = $"{Guid.NewGuid()}.html";
+                    string remotePathVer = sftpCfgVer["RemotePath"] ?? "/uploads";
+                    rutaNueva          = $"{remotePathVer}/{nombreArchivoNuevo}";
+
+                    using (var clientVer = new SftpClient(
+                        sftpCfgVer["Host"]     ?? "localhost",
+                        int.TryParse(sftpCfgVer["Port"], out int pVer) ? pVer : 2222,
+                        sftpCfgVer["Username"] ?? "sarahi",
+                        sftpCfgVer["Password"] ?? "12345"))
+                    {
+                        clientVer.Connect();
+                        var htmlBytesVer = System.Text.Encoding.UTF8.GetBytes(textoExtraido);
+                        using (var msVer = new MemoryStream(htmlBytesVer))
+                            clientVer.UploadFile(msVer, rutaNueva);
+                        clientVer.Disconnect();
+                    }
                 }
 
                 short nuevaVersion = (short)(documento.NumeroVersion + 1);
@@ -916,59 +956,58 @@ namespace QualityDocAPI.Controllers
 
                 var memoryStream = new MemoryStream();
 
-                if (version.RutaArchivo != "Sin archivo físico" && !string.IsNullOrWhiteSpace(version.RutaArchivo))
+                string tituloVer  = string.IsNullOrWhiteSpace(documento.Titulo) ? "Documento Sin Título" : documento.Titulo;
+                string nombreSalidaVer = $"v{numeroVersion}_{string.Join("_", tituloVer.Split(Path.GetInvalidFileNameChars()))}.pdf";
+
+                // ── Archivo PDF real en SFTP ──────────────────────────────────────
+                if (!string.IsNullOrEmpty(version.RutaArchivo)
+                    && version.RutaArchivo != "Sin archivo físico"
+                    && version.RutaArchivo.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase))
                 {
-                    var sftpSettings = _config.GetSection("SftpConfig");
+                    var memStream = new MemoryStream();
+                    var sftpCfg   = _config.GetSection("SftpConfig");
                     using (var client = new SftpClient(
-                        sftpSettings["Host"]     ?? "localhost",
-                        int.TryParse(sftpSettings["Port"], out int p) ? p : 2222,
-                        sftpSettings["Username"] ?? "sarahi",
-                        sftpSettings["Password"] ?? "12345"))
+                        sftpCfg["Host"]     ?? "localhost",
+                        int.TryParse(sftpCfg["Port"], out int p) ? p : 2222,
+                        sftpCfg["Username"] ?? "sarahi",
+                        sftpCfg["Password"] ?? "12345"))
                     {
                         client.Connect();
-                        client.DownloadFile(version.RutaArchivo, memoryStream);
+                        client.DownloadFile(version.RutaArchivo, memStream);
                         client.Disconnect();
                     }
-                    memoryStream.Position = 0;
+                    memStream.Position = 0;
 
                     string nombreBonito = version.NombreArchivo;
-                    int    idx          = nombreBonito.IndexOf('_');
-                    nombreBonito = idx >= 0
-                        ? $"v{numeroVersion}_{nombreBonito.Substring(idx + 1)}"
-                        : $"v{numeroVersion}_{documento.Titulo}.pdf";
+                    int    idxV         = nombreBonito.IndexOf('_');
+                    nombreBonito = idxV >= 0
+                        ? $"v{numeroVersion}_{nombreBonito.Substring(idxV + 1)}"
+                        : $"v{numeroVersion}_{tituloVer}.pdf";
 
                     await RegistrarLogAsync(idUsuario, id, "DESCARGÓ", $"v{numeroVersion} - {nombreBonito}");
-                    return File(memoryStream, "application/pdf", nombreBonito);
+                    return File(memStream, "application/pdf", nombreBonito);
                 }
-                else
+
+                // ── Archivo HTML del editor en SFTP (conserva formato y colores) ──
+                if (!string.IsNullOrEmpty(version.RutaArchivo)
+                    && version.RutaArchivo != "Sin archivo físico"
+                    && version.RutaArchivo.EndsWith(".html", StringComparison.OrdinalIgnoreCase))
                 {
-                    string titulo    = string.IsNullOrWhiteSpace(documento.Titulo) ? "Documento Sin Título" : documento.Titulo;
-                    string contenido = string.IsNullOrWhiteSpace(version.ComentarioCambio) ? "Versión sin contenido." : version.ComentarioCambio;
+                    var pdfBytesHtmlV = await HtmlSftpAPDF(version.RutaArchivo, tituloVer, numeroVersion.ToString());
+                    await RegistrarLogAsync(idUsuario, id, "DESCARGÓ", $"v{numeroVersion} - {nombreSalidaVer}");
+                    return File(pdfBytesHtmlV, "application/pdf", nombreSalidaVer);
+                }
 
-                    string html = $@"
-                        <html><head><style>
-                            body {{ font-family: 'Helvetica', sans-serif; padding: 30px; color: #333; }}
-                            h1   {{ color: #2c3e50; text-align: center; border-bottom: 2px solid #3498db; padding-bottom: 10px; }}
-                            .version-badge {{ text-align:center; margin: 8px 0 20px; color: #7f8c8d; font-size: 10pt; }}
-                            .contenido {{ font-size: 12pt; line-height: 1.6; margin-top: 20px; }}
-                            .footer {{ margin-top: 50px; font-size: 8pt; color: #7f8c8d; text-align: center; border-top: 1px solid #eee; padding-top: 10px; }}
-                        </style></head><body>
-                            <h1>{titulo}</h1>
-                            <div class='version-badge'>Versión {numeroVersion} — {version.FechaVersion:dd/MM/yyyy}</div>
-                            <div class='contenido'>{contenido}</div>
-                            <div class='footer'>Documento generado por QualityDoc System - {DateTime.Now:dd/MM/yyyy}</div>
-                        </body></html>";
-
-                    byte[] pdfBytes;
-                    using (var ms = new MemoryStream())
-                    {
-                        HtmlConverter.ConvertToPdf(html, ms);
-                        pdfBytes = ms.ToArray();
-                    }
-
-                    var nombre = $"v{numeroVersion}_{string.Join("_", titulo.Split(Path.GetInvalidFileNameChars()))}.pdf";
-                    await RegistrarLogAsync(idUsuario, id, "DESCARGÓ", $"v{numeroVersion} - {nombre}");
-                    return File(pdfBytes, "application/pdf", nombre);
+                // ── Fallback: compatibilidad con versiones antiguas sin archivo ──
+                {
+                    string contenidoFallback = string.IsNullOrWhiteSpace(version.ComentarioCambio)
+                        ? "Versión sin contenido registrado."
+                        : version.ComentarioCambio;
+                    string htmlFallbackV = ConstruirHtmlParaPDF(tituloVer, $"<p>{contenidoFallback}</p>", numeroVersion.ToString());
+                    using var msFallbackV = new MemoryStream();
+                    HtmlConverter.ConvertToPdf(htmlFallbackV, msFallbackV);
+                    await RegistrarLogAsync(idUsuario, id, "DESCARGÓ", $"v{numeroVersion} - {nombreSalidaVer}");
+                    return File(msFallbackV.ToArray(), "application/pdf", nombreSalidaVer);
                 }
             }
             catch (Exception ex)
@@ -994,5 +1033,88 @@ namespace QualityDocAPI.Controllers
                 return StatusCode(500, new { Error = "Error en Mongo", Detalle = ex.Message });
             }
         }
+        // ─────────────────────────────────────────────────────────────────
+        // MÉTODO AUXILIAR: construye el HTML completo para iText
+        // Preserva los estilos inline del editor (colores, subrayados, etc.)
+        // ─────────────────────────────────────────────────────────────────
+        private string ConstruirHtmlParaPDF(string titulo, string contenidoHtml, string? version = null)
+        {
+            string versionBadge = version != null
+                ? $"<div style=\"text-align:center;margin:6px 0 20px;font-size:10pt;color:#7f8c8d\">Versión {version} — {DateTime.Now:dd/MM/yyyy}</div>"
+                : "";
+            return $@"<!DOCTYPE html>
+<html>
+<head>
+<meta charset='UTF-8'/>
+<style>
+  body {{
+    font-family: Helvetica, Arial, sans-serif;
+    padding: 40px;
+    color: #333;
+    line-height: 1.6;
+  }}
+  .doc-titulo {{
+    font-size: 20pt;
+    font-weight: bold;
+    text-align: center;
+    color: #2c3e50;
+    border-bottom: 2px solid #3498db;
+    padding-bottom: 10px;
+    margin-bottom: 6px;
+  }}
+  .contenido {{
+    font-size: 12pt;
+    margin-top: 16px;
+  }}
+  .footer {{
+    margin-top: 50px;
+    font-size: 8pt;
+    color: #7f8c8d;
+    text-align: center;
+    border-top: 1px solid #eee;
+    padding-top: 10px;
+  }}
+  u  {{ text-decoration: underline; }}
+  s, strike {{ text-decoration: line-through; }}
+  b, strong {{ font-weight: bold; }}
+  i, em {{ font-style: italic; }}
+  ul {{ list-style-type: disc; margin-left: 20px; }}
+  ol {{ list-style-type: decimal; margin-left: 20px; }}
+</style>
+</head>
+<body>
+  <div class='doc-titulo'>{titulo}</div>
+  {versionBadge}
+  <div class='contenido'>{contenidoHtml}</div>
+  <div class='footer'>Documento generado por QualityDoc System — {DateTime.Now:dd/MM/yyyy}</div>
+</body>
+</html>";
+        }
+
+        // ─────────────────────────────────────────────────────────────────
+        // MÉTODO AUXILIAR: descarga un archivo HTML del SFTP y lo convierte a PDF
+        // ─────────────────────────────────────────────────────────────────
+        private async Task<byte[]> HtmlSftpAPDF(string rutaArchivo, string titulo, string? version = null)
+        {
+            var sftpSettings = _config.GetSection("SftpConfig");
+            using var ms = new MemoryStream();
+            using (var client = new SftpClient(
+                sftpSettings["Host"]     ?? "localhost",
+                int.TryParse(sftpSettings["Port"], out int p) ? p : 2222,
+                sftpSettings["Username"] ?? "sarahi",
+                sftpSettings["Password"] ?? "12345"))
+            {
+                client.Connect();
+                client.DownloadFile(rutaArchivo, ms);
+                client.Disconnect();
+            }
+            string contenidoHtml = System.Text.Encoding.UTF8.GetString(ms.ToArray());
+            string htmlCompleto  = ConstruirHtmlParaPDF(titulo, contenidoHtml, version);
+            using var pdfMs = new MemoryStream();
+            HtmlConverter.ConvertToPdf(htmlCompleto, pdfMs);
+            return pdfMs.ToArray();
+        }
+
+
     }
 }

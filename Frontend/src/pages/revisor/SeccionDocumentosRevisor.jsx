@@ -1,17 +1,7 @@
 import { useState, useEffect } from "react";
-import axios from "axios";
+import api from "../../api/axios";
+import "../../components/Seccion.css";
 
-const API = import.meta.env.VITE_API_URL || "http://localhost:5000";
-
-function token() {
-  return localStorage.getItem("token");
-}
-
-function headers() {
-  return { Authorization: `Bearer ${token()}` };
-}
-
-// Formatea una fecha ISO a dd/mm/aaaa hh:mm
 function fmtFecha(iso) {
   if (!iso) return "—";
   const d = new Date(iso);
@@ -23,7 +13,7 @@ export default function SeccionDocumentosRevisor() {
   const [pendientes, setPendientes]   = useState([]);
   const [cargando,   setCargando]     = useState(true);
   const [error,      setError]        = useState("");
-  const [modalDoc,   setModalDoc]     = useState(null);   // doc seleccionado para resolver
+  const [modalDoc,   setModalDoc]     = useState(null);
   const [decision,   setDecision]     = useState("Aprobado");
   const [comentario, setComentario]   = useState("");
   const [enviando,   setEnviando]     = useState(false);
@@ -34,8 +24,8 @@ export default function SeccionDocumentosRevisor() {
     setCargando(true);
     setError("");
     try {
-      const res = await axios.get(`${API}/api/Documentos/pendientes-revision`, { headers: headers() });
-      setPendientes(res.data.Resultados || []);
+      const res = await api.get("/Documentos/pendientes-revision");
+      setPendientes(res.data.resultados || []);
     } catch (e) {
       setError(e.response?.data?.Mensaje || "No se pudieron cargar los documentos pendientes.");
     } finally {
@@ -47,10 +37,10 @@ export default function SeccionDocumentosRevisor() {
 
   // ── Obtener idFlujo del documento (el último pendiente) ────────
   async function obtenerIdFlujo(idDocumento) {
-    const res = await axios.get(`${API}/api/Documentos/${idDocumento}/flujo`, { headers: headers() });
-    const historial = res.data.Historial || [];
-    const pendiente = historial.find(f => f.Decision === "Pendiente");
-    return pendiente?.IdFlujo ?? null;
+    const res = await api.get(`/Documentos/${idDocumento}/flujo`);
+    const historial = res.data.historial || [];
+    const pendiente = historial.find(f => f.decision === "Pendiente");
+    return pendiente?.idFlujo ?? null;
   }
 
   // ── Resolver aprobación ────────────────────────────────────────
@@ -59,14 +49,14 @@ export default function SeccionDocumentosRevisor() {
     setEnviando(true);
     setMensaje("");
     try {
-      const idFlujo = await obtenerIdFlujo(modalDoc.Documento?.sqlId ?? modalDoc.Documento?.SqlId);
-      if (!idFlujo) { setMensaje("⚠️ No se encontró la solicitud pendiente."); return; }
+      const doc = modalDoc.documento ?? modalDoc.Documento;
+      const idFlujo = await obtenerIdFlujo(doc?.sqlId ?? doc?.SqlId);
+      if (!idFlujo) { setMensaje("⚠️ No se encontró la solicitud pendiente."); setEnviando(false); return; }
 
-      await axios.put(
-        `${API}/api/Documentos/resolver-aprobacion/${idFlujo}`,
-        { Decision: decision, Comentarios: comentario },
-        { headers: headers() }
-      );
+      await api.put(`/Documentos/resolver-aprobacion/${idFlujo}`, {
+        Decision: decision,
+        Comentarios: comentario,
+      });
 
       setMensaje(`✅ Documento ${decision.toLowerCase()} correctamente.`);
       setTimeout(() => {
@@ -86,10 +76,7 @@ export default function SeccionDocumentosRevisor() {
   // ── Descargar documento ────────────────────────────────────────
   async function descargar(idDocumento) {
     try {
-      const res = await axios.get(`${API}/api/Documentos/descargar/${idDocumento}`, {
-        headers: headers(),
-        responseType: "blob",
-      });
+      const res = await api.get(`/Documentos/descargar/${idDocumento}`, { responseType: "blob" });
       const url  = URL.createObjectURL(res.data);
       const link = document.createElement("a");
       link.href  = url;
@@ -102,116 +89,113 @@ export default function SeccionDocumentosRevisor() {
   }
 
   // ── Render ─────────────────────────────────────────────────────
-  if (cargando) return <div className="estado-vacio">Cargando pendientes…</div>;
-  if (error)    return <div className="estado-error">{error}</div>;
+  if (cargando) return <p className="cargando-txt">Cargando pendientes…</p>;
+  if (error)    return <div className="alerta-error">{error}</div>;
 
   return (
-    <div className="seccion-revisor">
+    <div>
+      <div className="seccion-header">
+        <h2 className="seccion-titulo">Documentos pendientes de revisión</h2>
+      </div>
+
       {pendientes.length === 0 ? (
-        <div className="estado-vacio">
-          <span className="estado-icono">🎉</span>
-          <p>No hay documentos pendientes de revisión en tu área.</p>
+        <div className="card">
+          <p className="sin-datos">🎉 No hay documentos pendientes de revisión en tu área.</p>
         </div>
       ) : (
-        <div className="lista-pendientes">
-          {pendientes.map((item, i) => {
-            const doc = item.Documento;
-            const id  = doc?.sqlId ?? doc?.SqlId;
-            return (
-              <div key={i} className="card-pendiente">
-                {/* Encabezado */}
-                <div className="card-header-pendiente">
-                  <div>
-                    <h3 className="card-titulo">{doc?.titulo ?? doc?.Titulo ?? "Sin título"}</h3>
-                    <span className="card-area">{doc?.area ?? doc?.Area ?? "—"}</span>
-                  </div>
-                  <div className="card-badges">
-                    <span className="badge-version">v{item.Version}</span>
-                    <span className="badge-pendiente">Pendiente</span>
-                  </div>
-                </div>
-
-                {/* Meta */}
-                <div className="card-meta-grid">
-                  <div className="meta-item">
-                    <span className="meta-label">Categoría</span>
-                    <span className="meta-valor">{doc?.categoria ?? doc?.Categoria ?? "—"}</span>
-                  </div>
-                  <div className="meta-item">
-                    <span className="meta-label">Subido por</span>
-                    <span className="meta-valor">{doc?.subidoPor ?? doc?.SubidoPor ?? doc?.autor ?? doc?.Autor ?? "—"}</span>
-                  </div>
-                  <div className="meta-item">
-                    <span className="meta-label">Fecha de subida</span>
-                    <span className="meta-valor">{fmtFecha(doc?.fechaSubida ?? doc?.FechaSubida)}</span>
-                  </div>
-                  {doc?.etiquetas?.length > 0 && (
-                    <div className="meta-item meta-wide">
-                      <span className="meta-label">Etiquetas</span>
-                      <div className="etiquetas-row">
-                        {doc.etiquetas.map((e, j) => <span key={j} className="etiqueta-chip">{e}</span>)}
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* Acciones */}
-                <div className="card-acciones">
-                  <button className="btn-secondary" onClick={() => descargar(id)}>
-                    ⬇ Descargar
-                  </button>
-                  <button className="btn-primary" onClick={() => setModalDoc(item)}>
-                    Revisar
-                  </button>
-                </div>
-              </div>
-            );
-          })}
+        <div className="card">
+          <div className="tabla-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Título</th>
+                  <th>Área</th>
+                  <th>Ver.</th>
+                  <th>Acciones</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pendientes.map((item, i) => {
+                  const doc = item.documento ?? item.Documento;
+                  const id  = doc?.sqlId ?? doc?.SqlId;
+                  return (
+                    <tr key={i}>
+                      <td>
+                        <div style={{ fontWeight: 500 }}>{doc?.titulo ?? doc?.Titulo ?? "Sin título"}</div>
+                        <div style={{ fontSize: '0.8rem', color: '#9ca3af' }}>{doc?.categoria ?? doc?.Categoria ?? "—"}</div>
+                        <div style={{ fontSize: '0.75rem', color: '#6b7280', marginTop: '4px' }}>
+                          {(doc?.subidoPor ?? doc?.SubidoPor) && <span>Subido por: <strong>{doc?.subidoPor ?? doc?.SubidoPor}</strong></span>}
+                          {(doc?.fechaSubida ?? doc?.FechaSubida) && <span> · {fmtFecha(doc?.fechaSubida ?? doc?.FechaSubida)}</span>}
+                        </div>
+                        {doc?.etiquetas?.length > 0 && (
+                          <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginTop: '4px' }}>
+                            {doc.etiquetas.map((e, j) => (
+                              <span key={j} style={{
+                                background: '#eff6ff', color: '#1d4ed8', fontSize: '0.68rem',
+                                padding: '1px 6px', borderRadius: '4px', border: '1px solid #bfdbfe'
+                              }}>{e}</span>
+                            ))}
+                          </div>
+                        )}
+                      </td>
+                      <td>{doc?.area ?? doc?.Area ?? "—"}</td>
+                      <td>v{item.version ?? item.Version ?? "—"}</td>
+                      <td>
+                        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                          <button className="btn-secundario" onClick={() => descargar(id)}>
+                            Descargar
+                          </button>
+                          <button className="btn-primario" onClick={() => setModalDoc(item)}>
+                            Revisar
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 
       {/* ── Modal de resolución ── */}
       {modalDoc && (
-        <div className="modal-overlay" onClick={() => setModalDoc(null)}>
-          <div className="modal-box" onClick={e => e.stopPropagation()}>
-            <h2 className="modal-titulo">Resolver aprobación</h2>
-            <p className="modal-subtitulo">
-              {modalDoc.Documento?.titulo ?? modalDoc.Documento?.Titulo ?? "Documento"}
+        <div className="modal-fondo" onClick={() => setModalDoc(null)}>
+          <div className="modal-card" style={{ maxWidth: '440px' }} onClick={e => e.stopPropagation()}>
+            <h3 className="modal-titulo">Resolver aprobación</h3>
+            <p style={{ fontSize: '0.85rem', color: '#6b7280', marginBottom: '1rem' }}>
+              {(modalDoc.documento ?? modalDoc.Documento)?.titulo ?? (modalDoc.documento ?? modalDoc.Documento)?.Titulo ?? "Documento"}
             </p>
 
-            <div className="form-group">
-              <label className="form-label">Decisión</label>
-              <div className="radio-group">
-                <label className={`radio-option ${decision === "Aprobado"  ? "selected" : ""}`}>
-                  <input type="radio" value="Aprobado"  checked={decision === "Aprobado"}  onChange={() => setDecision("Aprobado")} />
-                  ✅ Aprobar
-                </label>
-                <label className={`radio-option ${decision === "Rechazado" ? "selected" : ""}`}>
-                  <input type="radio" value="Rechazado" checked={decision === "Rechazado"} onChange={() => setDecision("Rechazado")} />
-                  ❌ Rechazar
-                </label>
+            <div className="form-grid una-col">
+              <div className="campo-form">
+                <label>Decisión</label>
+                <select value={decision} onChange={(e) => setDecision(e.target.value)}>
+                  <option value="Aprobado">✅ Aprobar</option>
+                  <option value="Rechazado">❌ Rechazar</option>
+                </select>
+              </div>
+              <div className="campo-form">
+                <label>Comentarios {decision === 'Rechazado' ? '*' : '(opcional)'}</label>
+                <textarea
+                  rows={4}
+                  placeholder="Escribe observaciones o motivo de rechazo…"
+                  value={comentario}
+                  onChange={e => setComentario(e.target.value)}
+                  required={decision === 'Rechazado'}
+                />
               </div>
             </div>
 
-            <div className="form-group">
-              <label className="form-label">Comentarios <span className="form-optional">(opcional)</span></label>
-              <textarea
-                className="form-textarea"
-                rows={4}
-                placeholder="Escribe observaciones o motivo de rechazo…"
-                value={comentario}
-                onChange={e => setComentario(e.target.value)}
-              />
-            </div>
-
-            {mensaje && <div className={`form-mensaje ${mensaje.startsWith("✅") ? "ok" : "error"}`}>{mensaje}</div>}
+            {mensaje && <div className={mensaje.startsWith("✅") ? "alerta-ok" : "alerta-error"} style={{ marginTop: '1rem' }}>{mensaje}</div>}
 
             <div className="modal-acciones">
-              <button className="btn-secondary" onClick={() => setModalDoc(null)} disabled={enviando}>
+              <button className="btn-secundario" onClick={() => setModalDoc(null)} disabled={enviando}>
                 Cancelar
               </button>
               <button
-                className={`btn-primary ${decision === "Rechazado" ? "btn-danger" : ""}`}
+                className={decision === "Rechazado" ? "btn-peligro" : "btn-primario"}
                 onClick={resolver}
                 disabled={enviando}
               >

@@ -427,13 +427,17 @@ export default function SeccionDocumentos() {
                     <label>Área de destino</label>
                     <select value={formDoc.IdArea}
                       onChange={(e) => setFormDoc({ ...formDoc, IdArea: e.target.value })}>
-                      <option value="">— Heredar mi área —</option>
+                      <option value="">— General (visible para todas las áreas) —</option>
                       {areas.map((a) => (
                         <option key={a.id} value={a.id}>{a.nombre}</option>
                       ))}
                     </select>
-                    <span style={{ fontSize: '0.75rem', color: '#9ca3af', fontStyle: 'italic' }}>
-                      Solo visible para usuarios del área General
+                    <span style={{ fontSize: '0.75rem', fontStyle: 'italic',
+                      color: formDoc.IdArea ? '#fbbf24' : '#4ade80'
+                    }}>
+                      {formDoc.IdArea
+                        ? `📌 Solo visible para el área: ${areas.find(a => String(a.id) === String(formDoc.IdArea))?.nombre || 'seleccionada'}`
+                        : '🌐 Visible para TODAS las áreas (área General)'}
                     </span>
                   </div>
                 )}
