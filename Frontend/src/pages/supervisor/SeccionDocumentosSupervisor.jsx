@@ -12,13 +12,14 @@ export default function SeccionDocumentosSupervisor() {
 
   // Subir documento
   const [modalSubir, setModalSubir] = useState(false)
-  const [formDoc, setFormDoc]       = useState({ Titulo: '', Autor: '', IdCategoria: 1, ContenidoTexto: '' })
+  const [formDoc, setFormDoc]       = useState({ Titulo: '', IdCategoria: 1, ContenidoTexto: '' })
   const [archivo, setArchivo]       = useState(null)
+  const [etiquetasInput, setEtiquetasInput] = useState('')
   const [subiendoDoc, setSubiendo]  = useState(false)
   const [errorSubir, setErrorSubir] = useState('')
   const [okSubir, setOkSubir]       = useState('')
 
-  // Flujo de aprobación
+  // Flujo de aprobación (solo lectura + solicitar)
   const [modalFlujo, setModalFlujo] = useState(false)
   const [docSel, setDocSel]         = useState(null)
   const [flujoData, setFlujoData]   = useState(null)
@@ -26,13 +27,7 @@ export default function SeccionDocumentosSupervisor() {
   const [errorFlujo, setErrorFlujo] = useState('')
   const [okFlujo, setOkFlujo]       = useState('')
 
-  // Resolver aprobación
-  const [modalRes, setModalRes]     = useState(false)
-  const [idFlujoRes, setIdFlujoRes] = useState(null)
-  const [formRes, setFormRes]       = useState({ Decision: 'Aprobado', Comentarios: '' })
-  const [resolviendoF, setResF]     = useState(false)
-
-  // Versiones — integradas en los resultados, sin sección separada
+  // Versiones
   const [modalVersiones, setModalVersiones] = useState(false)
   const [versionesData, setVersionesData]   = useState(null)
   const [cargVersiones, setCargVersiones]   = useState(false)
@@ -97,7 +92,6 @@ export default function SeccionDocumentosSupervisor() {
     setSubiendo(true)
     setErrorSubir('')
 
-    // Validación en el frontend: debe adjuntar PDF o escribir contenido
     const tieneArchivo   = !!archivo
     const tieneContenido = formDoc.ContenidoTexto &&
       formDoc.ContenidoTexto.replace(/<[^>]*>/g, '').trim() !== ''
@@ -111,10 +105,14 @@ export default function SeccionDocumentosSupervisor() {
     try {
       const fd = new FormData()
       fd.append('Titulo',      formDoc.Titulo)
-      fd.append('Autor',       formDoc.Autor)
       fd.append('IdCategoria', formDoc.IdCategoria)
       if (archivo)                     fd.append('Archivo', archivo)
       else if (formDoc.ContenidoTexto) fd.append('ContenidoTexto', formDoc.ContenidoTexto)
+
+      // Etiquetas
+      const etiquetas = etiquetasInput.split(',').map(e => e.trim()).filter(Boolean)
+      etiquetas.forEach(tag => fd.append('Etiquetas', tag))
+
       await api.post('/Documentos', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
       setOkSubir('Documento subido correctamente. Queda en tu área automáticamente.')
       setTimeout(() => { setModalSubir(false); setOkSubir('') }, 2500)
@@ -127,8 +125,8 @@ export default function SeccionDocumentosSupervisor() {
 
   const handleSolicitar = async (idDoc) => {
     try {
-      const r = await api.put(`/Documentos/solicitar-aprobacion/${idDoc}`)
-      alert(`Solicitud de revisión creada correctamente.`)
+      await api.put(`/Documentos/solicitar-aprobacion/${idDoc}`)
+      alert('Solicitud de revisión creada correctamente.')
     } catch (e) {
       alert(e.response?.data?.Mensaje || 'Error al solicitar aprobación.')
     }
@@ -152,7 +150,6 @@ export default function SeccionDocumentosSupervisor() {
     }
   }
 
-  // Ver versiones — el ID viene del resultado de búsqueda, el supervisor no lo escribe
   const verVersiones = async (r) => {
     const idDoc = r.documento?.sqlId ?? r.sqlId
     const titulo = r.documento?.titulo ?? r.titulo ?? `Documento #${idDoc}`
@@ -195,30 +192,6 @@ export default function SeccionDocumentosSupervisor() {
     }
   }
 
-  const abrirResolver = (idFlujo) => {
-    setIdFlujoRes(idFlujo)
-    setFormRes({ Decision: 'Aprobado', Comentarios: '' })
-    setModalRes(true)
-  }
-
-  const handleResolver = async (e) => {
-    e.preventDefault()
-    setResF(true)
-    setErrorFlujo('')
-    try {
-      await api.put(`/Documentos/resolver-aprobacion/${idFlujoRes}`, formRes)
-      setOkFlujo(`Documento ${formRes.Decision.toLowerCase()} correctamente.`)
-      setModalRes(false)
-      const idDoc = docSel?.documento?.sqlId ?? docSel?.sqlId
-      const res = await api.get(`/Documentos/${idDoc}/flujo`)
-      setFlujoData(res.data)
-    } catch (e) {
-      setErrorFlujo(e.response?.data?.Mensaje || 'Error al resolver.')
-    } finally {
-      setResF(false)
-    }
-  }
-
   const badgeEstado = (estado) => {
     if (estado === 'Aprobado') return <span className="badge badge-verde">Aprobado</span>
     if (estado === 'Borrador') return <span className="badge badge-naranja">Borrador</span>
@@ -242,8 +215,9 @@ export default function SeccionDocumentosSupervisor() {
       <div className="seccion-header">
         <h2 className="seccion-titulo">Documentos</h2>
         <button className="btn-primario" onClick={() => {
-          setFormDoc({ Titulo: '', Autor: '', IdCategoria: 1, ContenidoTexto: '' })
+          setFormDoc({ Titulo: '', IdCategoria: 1, ContenidoTexto: '' })
           setArchivo(null)
+          setEtiquetasInput('')
           setErrorSubir('')
           setOkSubir('')
           setModalSubir(true)
@@ -295,6 +269,37 @@ export default function SeccionDocumentosSupervisor() {
                       <td>
                         <div>{doc.titulo}</div>
                         <div style={{ fontSize: '0.8rem', color: '#9ca3af' }}>{doc.categoria}</div>
+                        {/* ── Auditoría ── */}
+                        <div style={{ fontSize: '0.75rem', color: '#6b7280', marginTop: '4px' }}>
+                          {doc.subidoPor && <span>Subido por: <strong>{doc.subidoPor}</strong></span>}
+                          {doc.fechaSubida && <span> · {formatFecha(doc.fechaSubida)}</span>}
+                        </div>
+                        {doc.ultimoFlujo && (
+                          <div style={{ fontSize: '0.75rem', marginTop: '2px' }}>
+                            <span style={{
+                              padding: '1px 6px', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 600,
+                              background: doc.ultimoFlujo.decision === 'Aprobado' ? '#dcfce7' :
+                                          doc.ultimoFlujo.decision === 'Rechazado' ? '#fee2e2' : '#fef9c3',
+                              color: doc.ultimoFlujo.decision === 'Aprobado' ? '#166534' :
+                                     doc.ultimoFlujo.decision === 'Rechazado' ? '#991b1b' : '#854d0e'
+                            }}>
+                              {doc.ultimoFlujo.decision}
+                            </span>
+                            {doc.ultimoFlujo.revisadoPor && (
+                              <span style={{ color: '#6b7280' }}> · {doc.ultimoFlujo.revisadoPor}</span>
+                            )}
+                          </div>
+                        )}
+                        {doc.etiquetas?.length > 0 && (
+                          <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginTop: '4px' }}>
+                            {doc.etiquetas.map((e, j) => (
+                              <span key={j} style={{
+                                background: '#eff6ff', color: '#1d4ed8', fontSize: '0.68rem',
+                                padding: '1px 6px', borderRadius: '4px', border: '1px solid #bfdbfe'
+                              }}>{e}</span>
+                            ))}
+                          </div>
+                        )}
                       </td>
                       <td>
                         {doc.area}{' '}
@@ -307,17 +312,14 @@ export default function SeccionDocumentosSupervisor() {
                           <button className="btn-secundario" onClick={() => handleDescargar(doc.sqlId)}>
                             Descargar
                           </button>
-                          {/* Flujo y versiones: cualquier doc accesible */}
                           <button className="btn-secundario" onClick={() => verFlujo(r)}>
                             Flujo
                           </button>
-                          {/* Versiones: solo docs de SU área, no Generales */}
                           {!general && (
                             <button className="btn-secundario" onClick={() => verVersiones(r)}>
                               Versiones
                             </button>
                           )}
-                          {/* Solicitar revisión: solo Borrador de SU área */}
                           {!general && estado === 'Borrador' && (
                             <button className="btn-exito" onClick={() => handleSolicitar(doc.sqlId)}>
                               Solicitar revisión
@@ -357,12 +359,6 @@ export default function SeccionDocumentosSupervisor() {
                     placeholder="Nombre del documento" />
                 </div>
                 <div className="campo-form">
-                  <label>Autor *</label>
-                  <input required value={formDoc.Autor}
-                    onChange={(e) => setFormDoc({ ...formDoc, Autor: e.target.value })}
-                    placeholder="Nombre del autor" />
-                </div>
-                <div className="campo-form" style={{ gridColumn: '1 / -1' }}>
                   <label>Categoría *</label>
                   <select value={formDoc.IdCategoria}
                     onChange={(e) => setFormDoc({ ...formDoc, IdCategoria: e.target.value })}>
@@ -371,6 +367,16 @@ export default function SeccionDocumentosSupervisor() {
                     ))}
                   </select>
                 </div>
+
+                {/* Etiquetas */}
+                <div className="campo-form" style={{ gridColumn: '1 / -1' }}>
+                  <label>Etiquetas <span style={{ fontWeight: 400, color: '#9ca3af' }}>(separa con comas)</span></label>
+                  <input
+                    value={etiquetasInput}
+                    onChange={(e) => setEtiquetasInput(e.target.value)}
+                    placeholder="calidad, iso, manual…" />
+                </div>
+
                 <div className="campo-form" style={{ gridColumn: '1 / -1' }}>
                   <label>Archivo PDF</label>
                   <input type="file" accept=".pdf" onChange={(e) => setArchivo(e.target.files[0])} />
@@ -399,7 +405,7 @@ export default function SeccionDocumentosSupervisor() {
         </div>
       )}
 
-      {/* ── Modal flujo de aprobación ───────────────────────────────── */}
+      {/* ── Modal flujo de aprobación (solo lectura — supervisor ya no resuelve) ── */}
       {modalFlujo && (
         <div className="modal-fondo" onClick={() => setModalFlujo(false)}>
           <div className="modal-card" style={{ maxWidth: '640px' }} onClick={(e) => e.stopPropagation()}>
@@ -436,16 +442,10 @@ export default function SeccionDocumentosSupervisor() {
                             "{h.comentarios}"
                           </div>
                         )}
-                        {h.decision === 'Pendiente' && !esDocGeneral(docSel) && (
-                          <div style={{ marginTop: '10px' }}>
-                            <button className="btn-primario" onClick={() => abrirResolver(h.idFlujo)}>
-                              Resolver esta solicitud
-                            </button>
-                          </div>
-                        )}
-                        {h.decision === 'Pendiente' && esDocGeneral(docSel) && (
-                          <p style={{ marginTop: '8px', fontSize: '0.8125rem', color: '#6b7280' }}>
-                            Este documento es del área General — solo el Admin o Supervisor General puede resolverlo.
+                        {/* Supervisor ya NO puede resolver — esa responsabilidad es del Revisor */}
+                        {h.decision === 'Pendiente' && (
+                          <p style={{ marginTop: '8px', fontSize: '0.8125rem', color: '#6b7280', fontStyle: 'italic' }}>
+                            Esperando revisión por un Revisor o Admin.
                           </p>
                         )}
                       </div>
@@ -466,41 +466,6 @@ export default function SeccionDocumentosSupervisor() {
             <div className="modal-acciones">
               <button className="btn-secundario" onClick={() => setModalFlujo(false)}>Cerrar</button>
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── Modal resolver ──────────────────────────────────────────── */}
-      {modalRes && (
-        <div className="modal-fondo" onClick={() => setModalRes(false)}>
-          <div className="modal-card" style={{ maxWidth: '440px' }} onClick={(e) => e.stopPropagation()}>
-            <h3 className="modal-titulo">Resolver solicitud #{idFlujoRes}</h3>
-            <form onSubmit={handleResolver}>
-              <div className="form-grid una-col">
-                <div className="campo-form">
-                  <label>Decisión</label>
-                  <select value={formRes.Decision} onChange={(e) => setFormRes({ ...formRes, Decision: e.target.value })}>
-                    <option value="Aprobado">Aprobado</option>
-                    <option value="Rechazado">Rechazado</option>
-                  </select>
-                </div>
-                <div className="campo-form">
-                  <label>Comentarios {formRes.Decision === 'Rechazado' ? '*' : '(opcional)'}</label>
-                  <textarea required={formRes.Decision === 'Rechazado'}
-                    value={formRes.Comentarios}
-                    onChange={(e) => setFormRes({ ...formRes, Comentarios: e.target.value })}
-                    placeholder="Describe el motivo de tu decisión..." />
-                </div>
-              </div>
-              <div className="modal-acciones">
-                <button type="button" className="btn-secundario" onClick={() => setModalRes(false)}>Cancelar</button>
-                <button type="submit"
-                  className={formRes.Decision === 'Aprobado' ? 'btn-primario' : 'btn-peligro'}
-                  disabled={resolviendoF}>
-                  {resolviendoF ? 'Guardando...' : `Confirmar ${formRes.Decision}`}
-                </button>
-              </div>
-            </form>
           </div>
         </div>
       )}

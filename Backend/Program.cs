@@ -78,11 +78,9 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 // --- 6. DEFINIR REGLAS DE ROLES (AUTORIZACIÓN) ---
 builder.Services.AddAuthorization(options =>
 {
-    // --- CORRECCIÓN: "idRol" debe ser exactamente igual a como se guardó en el Token (minúscula) ---
-    // Aquí definimos que el rol 1 es el Admin
-    options.AddPolicy("SoloAdmin", policy => policy.RequireClaim("idRol", "1"));
-    // Nueva política: Deja pasar si eres Admin (1) O Supervisor (2)
+    options.AddPolicy("SoloAdmin",    policy => policy.RequireClaim("idRol", "1"));
     options.AddPolicy("SubeYAprueba", policy => policy.RequireClaim("idRol", "1", "2"));
+    options.AddPolicy("PuedeRevisar", policy => policy.RequireClaim("idRol", "1", "4"));
 });
 
 var app = builder.Build();
@@ -92,8 +90,6 @@ if (app.Environment.IsDevelopment())
     app.UseSwagger();
     app.UseSwaggerUI();
 }
-
-app.UseHttpsRedirection();
 
 // --- EL ORDEN DE ESTAS LÍNEAS ES VITAL ---
 app.UseCors("PaseVIP");      // 1. Deja entrar al frontend

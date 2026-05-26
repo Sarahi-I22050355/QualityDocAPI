@@ -14,7 +14,7 @@ export default function Login() {
 
   const handleChange = (e) => {
     setForm({ ...form, [e.target.name]: e.target.value })
-    setError('') // limpia el error al escribir
+    setError('')
   }
 
   const handleSubmit = async (e) => {
@@ -36,6 +36,7 @@ export default function Login() {
       if (rol === 1) navigate('/admin')
       else if (rol === 2) navigate('/supervisor')
       else if (rol === 3) navigate('/operario')
+      else if (rol === 4) navigate('/revisor')
       else navigate('/login')
 
     } catch (err) {

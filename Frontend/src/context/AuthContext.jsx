@@ -1,58 +1,51 @@
-import { createContext, useContext, useState, useEffect } from 'react'
+import { createContext, useContext, useState, useEffect } from "react";
 
-// El contexto es una "caja global" que cualquier componente puede leer
-// sin tener que pasar props de padre a hijo manualmente.
-const AuthContext = createContext(null)
+const AuthContext = createContext();
 
 export function AuthProvider({ children }) {
-  const [usuario, setUsuario] = useState(null)
-  const [cargando, setCargando] = useState(true)
+  const [usuario, setUsuario] = useState(null);
+  const [cargando, setCargando] = useState(true);
 
-  // Al arrancar la app, revisa si ya había una sesión guardada en
-  // localStorage (por si el usuario recargó la página).
   useEffect(() => {
-    const token    = localStorage.getItem('token')
-    const datos    = localStorage.getItem('usuario')
-    if (token && datos) {
-      setUsuario(JSON.parse(datos))
+    const token = localStorage.getItem("token");
+    if (token) {
+      try {
+        const payload = JSON.parse(atob(token.split(".")[1]));
+        setUsuario(payload);
+      } catch {
+        localStorage.removeItem("token");
+      }
     }
-    setCargando(false)
-  }, [])
+    setCargando(false);
+  }, []);
 
-  // Se llama desde la pantalla de Login cuando el backend responde OK.
-  // Guarda el token y los datos del usuario en localStorage y en el estado.
-  const login = (datosDelBackend) => {
-    const datosUsuario = {
-      nombre:    datosDelBackend.usuario,
-      rol:       datosDelBackend.rol,       // 1=Admin, 2=Supervisor, 3=Operario
-      area:      datosDelBackend.area,
-      esGeneral: datosDelBackend.esGeneral,
-    }
-    localStorage.setItem('token',   datosDelBackend.token)
-    localStorage.setItem('usuario', JSON.stringify(datosUsuario))
-    setUsuario(datosUsuario)
-  }
+  const login = (data) => {
+    // Acepta el objeto completo { mensaje, usuario, rol, token, ... }
+    // o solo el string del token
+    const token = data.token || data;
+    localStorage.setItem("token", token);
+    const payload = JSON.parse(atob(token.split(".")[1]));
+    setUsuario(payload);
+  };
 
-  // Limpia todo y vuelve al estado sin sesión.
   const logout = () => {
-    localStorage.clear()
-    setUsuario(null)
-  }
+    localStorage.removeItem("token");
+    setUsuario(null);
+  };
 
-  // Helpers para no tener que comparar números de rol en cada componente.
-  const esAdmin      = () => usuario?.rol === 1
-  const esSupervisor = () => usuario?.rol === 2
-  const esOperario   = () => usuario?.rol === 3
+  // ── Helpers de rol ──────────────────────────────────────────────
+  const esAdmin      = () => usuario?.idRol === 1 || usuario?.idRol === "1";
+  const esSupervisor = () => usuario?.idRol === 2 || usuario?.idRol === "2";
+  const esOperario   = () => usuario?.idRol === 3 || usuario?.idRol === "3";
+  const esRevisor    = () => usuario?.idRol === 4 || usuario?.idRol === "4";
 
   return (
-    <AuthContext.Provider value={{ usuario, cargando, login, logout, esAdmin, esSupervisor, esOperario }}>
+    <AuthContext.Provider value={{ usuario, login, logout, cargando, esAdmin, esSupervisor, esOperario, esRevisor }}>
       {children}
     </AuthContext.Provider>
-  )
+  );
 }
 
-// Hook personalizado. En cualquier componente puedes escribir:
-// const { usuario, logout, esAdmin } = useAuth()
 export function useAuth() {
-  return useContext(AuthContext)
+  return useContext(AuthContext);
 }

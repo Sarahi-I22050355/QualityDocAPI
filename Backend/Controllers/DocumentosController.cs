@@ -50,7 +50,6 @@ namespace QualityDocAPI.Controllers
 
         // ─────────────────────────────────────────────────────────────────
         // MÉTODO AUXILIAR: inserta un registro en LogAccesos.
-        // Si el log falla, NO interrumpe la operación principal.
         // ─────────────────────────────────────────────────────────────────
         private async Task RegistrarLogAsync(int idUsuario, int? idDocumento, string accion, string? detalle)
         {
@@ -71,23 +70,13 @@ namespace QualityDocAPI.Controllers
         }
 
         // ─────────────────────────────────────────────────────────────────
-        // ACCESO PARA VER / DESCARGAR (lectura)
-        //
-        // Permite acceso si:
-        //   - Es Admin (rol 1)             → acceso total
-        //   - Usuario del área General     → acceso total (esGeneral = true en token)
-        //   - Documento es de su área      → acceso permitido
-        //   - Documento pertenece a un área marcada como es_general en BD
-        //                                  → cualquiera puede verlo/descargarlo
-        //
-        // Usado en: BuscarDocumentos, DescargarDocumento, ObtenerFlujoPorDocumento
+        // ACCESO PARA VER / DESCARGAR (lectura amplia)
         // ─────────────────────────────────────────────────────────────────
         private bool TieneAccesoParaVer(string rol, bool esGeneral, int? idAreaToken, int? idAreaDocumento)
         {
             if (rol == "1" || esGeneral) return true;
             if (idAreaDocumento == idAreaToken) return true;
 
-            // ¿El documento pertenece a un área marcada como General en la BD?
             if (idAreaDocumento.HasValue)
             {
                 var areaDelDocumento = _sqlContext.Areas.Find(idAreaDocumento.Value);
@@ -100,20 +89,7 @@ namespace QualityDocAPI.Controllers
 
         // ─────────────────────────────────────────────────────────────────
         // ACCESO PARA MODIFICAR (escritura/aprobación)
-        //
-        // Más estricto que el de lectura. Permite acceso si:
-        //   - Es Admin (rol 1)             → acceso total
-        //   - Usuario del área General     → acceso total (esGeneral = true en token)
-        //   - Documento es de SU MISMO área → acceso permitido
-        //
-        // NO permite acceso aunque el documento sea de un área General:
-        // un Supervisor de Calidad puede VER documentos del área General,
-        // pero NO puede aprobarlos, versionarlos ni solicitar su aprobación.
-        // Esas acciones las reservamos para el Admin o el Supervisor asignado
-        // al área General.
-        //
-        // Usado en: SolicitarAprobacion, ResolverAprobacion,
-        //           SubirNuevaVersion, ObtenerVersionesPorDocumento
+        // Rol 4 (Revisor) puede resolver aprobaciones en su área.
         // ─────────────────────────────────────────────────────────────────
         private bool TieneAccesoParaModificar(string rol, bool esGeneral, int? idAreaToken, int? idAreaDocumento)
         {
@@ -125,9 +101,9 @@ namespace QualityDocAPI.Controllers
         // POST: api/Documentos
         // Sube un documento nuevo (versión 1).
         // Roles: Admin (1) y Supervisor (2).
-        // Reglas de área:
-        //   - Supervisor: el área del doc se hereda de su token.
-        //   - Admin: puede especificar IdArea libremente.
+        // El Autor se toma del token JWT.
+        // El Área se hereda del token SALVO que el usuario sea de área General,
+        // en cuyo caso puede elegir cualquier área.
         // ═══════════════════════════════════════════════════════════════════
         [Authorize(Policy = "SubeYAprueba")]
         [HttpPost]
@@ -145,29 +121,26 @@ namespace QualityDocAPI.Controllers
             var (idUsuario, rol, esGeneral, idAreaToken) = ObtenerDatosToken();
             var nombreArea = User.FindFirst("nombre_area")?.Value ?? "General";
 
+            // Autor siempre viene del token
+            var nombreUsuario = User.FindFirst(ClaimTypes.Name)?.Value ?? "Usuario del sistema";
+
             int?   idAreaDocumento;
             string nombreAreaDocumento;
 
-            if (rol == "2") // Supervisor: hereda su propio área del token
+            // Solo usuarios de área General pueden elegir otra área
+            if (esGeneral && datosDePantalla.IdArea.HasValue && datosDePantalla.IdArea.Value > 0)
             {
+                var areaElegida = await _sqlContext.Areas.FindAsync(datosDePantalla.IdArea.Value);
+                if (areaElegida == null || !areaElegida.Activo)
+                    return BadRequest(new { Mensaje = $"El área con ID {datosDePantalla.IdArea} no existe." });
+                idAreaDocumento     = areaElegida.Id;
+                nombreAreaDocumento = areaElegida.Nombre;
+            }
+            else
+            {
+                // Todos los demás heredan su área del token
                 idAreaDocumento     = idAreaToken;
                 nombreAreaDocumento = nombreArea;
-            }
-            else // Admin: puede elegir área libremente
-            {
-                if (datosDePantalla.IdArea.HasValue && datosDePantalla.IdArea.Value > 0)
-                {
-                    var areaElegida = await _sqlContext.Areas.FindAsync(datosDePantalla.IdArea.Value);
-                    if (areaElegida == null || !areaElegida.Activo)
-                        return BadRequest(new { Mensaje = $"El área con ID {datosDePantalla.IdArea} no existe." });
-                    idAreaDocumento     = areaElegida.Id;
-                    nombreAreaDocumento = areaElegida.Nombre;
-                }
-                else
-                {
-                    idAreaDocumento     = idAreaToken;
-                    nombreAreaDocumento = nombreArea;
-                }
             }
 
             string textoExtraido      = "";
@@ -188,7 +161,7 @@ namespace QualityDocAPI.Controllers
 
                     var sftpSettings   = _config.GetSection("SftpConfig");
                     nombreArchivoFinal = $"{Guid.NewGuid()}_{datosDePantalla.Archivo.FileName}";
-                    string remotePath  = sftpSettings["RemotePath"] ?? "/home/sarahi/uploads";
+                    string remotePath  = sftpSettings["RemotePath"] ?? "/uploads";
                     rutaFinalEnLinux   = $"{remotePath}/{nombreArchivoFinal}";
 
                     using (var client = new SftpClient(
@@ -251,19 +224,23 @@ namespace QualityDocAPI.Controllers
 
                 await RegistrarLogAsync(idUsuario, documentoSQL.Id, "SUBIO", nombreArchivoFinal);
 
+                // Guardar en MongoDB con auditoría completa
                 await _mongoCollection.InsertOneAsync(new DocumentoMongo
                 {
-                    SqlId       = documentoSQL.Id,
-                    Titulo      = datosDePantalla.Titulo,
+                    SqlId      = documentoSQL.Id,
+                    Titulo     = datosDePantalla.Titulo,
                     Descripcion = textoExtraido,
-                    Categoria   = nombreCategoriaMongo,
-                    Autor       = datosDePantalla.Autor,
-                    Extension   = tieneArchivo ? "pdf" : "txt",
-                    Area        = nombreAreaDocumento,
-                    Etiquetas   = datosDePantalla.Etiquetas?
+                    Categoria  = nombreCategoriaMongo,
+                    Autor      = nombreUsuario,
+                    Extension  = tieneArchivo ? "pdf" : "txt",
+                    Area       = nombreAreaDocumento,
+                    Etiquetas  = datosDePantalla.Etiquetas?
                                     .Where(e => !string.IsNullOrWhiteSpace(e))
                                     .Select(e => e.ToLower())
-                                    .ToArray() ?? Array.Empty<string>()
+                                    .ToArray() ?? Array.Empty<string>(),
+                    SubidoPor  = nombreUsuario,
+                    FechaSubida = DateTime.Now,
+                    UltimoFlujo = null
                 });
 
                 return Ok(new
@@ -273,7 +250,7 @@ namespace QualityDocAPI.Controllers
                     Version         = 1,
                     Area            = nombreAreaDocumento,
                     Ubicacion       = rutaFinalEnLinux,
-                    SiguientePaso   = $"Cuando el documento esté listo, solicita su aprobación en: PUT /api/Documentos/solicitar-aprobacion/{documentoSQL.Id}"
+                    SiguientePaso   = $"Solicita su aprobación en: PUT /api/Documentos/solicitar-aprobacion/{documentoSQL.Id}"
                 });
             }
             catch (Exception ex)
@@ -284,7 +261,7 @@ namespace QualityDocAPI.Controllers
 
         // ═══════════════════════════════════════════════════════════════════
         // GET: api/Documentos/buscar/{palabraClave}
-        // Usa TieneAccesoParaVer (lectura amplia).
+        // Busca en MongoDB — los datos de auditoría ya vienen dentro del doc.
         // ═══════════════════════════════════════════════════════════════════
         [Authorize]
         [HttpGet("buscar/{palabraClave}")]
@@ -306,19 +283,17 @@ namespace QualityDocAPI.Controllers
 
                 FilterDefinition<DocumentoMongo> filtroFinal;
 
-                if (esGeneral)
+                if (esGeneral || rol == "1")
                 {
                     filtroFinal = filtroTexto;
                 }
                 else
                 {
-                    // Obtener los nombres de todas las áreas Generales de la BD
                     var nombresAreasGenerales = _sqlContext.Areas
                         .Where(a => a.EsGeneral && a.Activo)
                         .Select(a => a.Nombre)
                         .ToList();
 
-                    // Su área + cualquier área General
                     var filtroArea = builder.Or(
                         builder.Eq(d => d.Area, nombreArea),
                         builder.In(d => d.Area, nombresAreasGenerales)
@@ -334,7 +309,7 @@ namespace QualityDocAPI.Controllers
                 var idsMongo      = resultadosMongo.Select(r => r.SqlId).ToList();
                 var documentosSQL = _sqlContext.Documentos.Where(d => idsMongo.Contains(d.Id)).ToList();
 
-                if (rol == "3") // Operario: solo documentos Aprobados
+                if (rol == "3") // Operario: solo Aprobados
                 {
                     var idsAprobados = documentosSQL.Where(d => d.IdEstado == 2).Select(d => d.Id).ToList();
                     var finales      = resultadosMongo.Where(m => idsAprobados.Contains(m.SqlId)).ToList();
@@ -363,11 +338,78 @@ namespace QualityDocAPI.Controllers
         }
 
         // ═══════════════════════════════════════════════════════════════════
+        // GET: api/Documentos/pendientes-revision
+        // Para el Revisor: muestra todos los documentos con solicitud pendiente
+        // filtrados por su área (o todos si es área General).
+        // ═══════════════════════════════════════════════════════════════════
+        [Authorize(Policy = "PuedeRevisar")]
+        [HttpGet("pendientes-revision")]
+        public async Task<IActionResult> ObtenerPendientesRevision()
+        {
+            try
+            {
+                var (_, rol, esGeneral, idAreaToken) = ObtenerDatosToken();
+                var nombreArea = User.FindFirst("nombre_area")?.Value ?? "";
+                var builder    = Builders<DocumentoMongo>.Filter;
+
+                // Filtrar por área según el rol del revisor
+                FilterDefinition<DocumentoMongo> filtroArea;
+                if (esGeneral || rol == "1")
+                {
+                    filtroArea = builder.Empty;
+                }
+                else
+                {
+                    var nombresAreasGenerales = _sqlContext.Areas
+                        .Where(a => a.EsGeneral && a.Activo)
+                        .Select(a => a.Nombre)
+                        .ToList();
+
+                    filtroArea = builder.Or(
+                        builder.Eq(d => d.Area, nombreArea),
+                        builder.In(d => d.Area, nombresAreasGenerales)
+                    );
+                }
+
+                var todosMongo = await _mongoCollection.Find(filtroArea).ToListAsync();
+                var idsMongo   = todosMongo.Select(r => r.SqlId).ToList();
+
+                // Obtener solo los que tienen solicitud pendiente
+                var idsPendientes = _sqlContext.FlujoAprobacion
+                    .Where(f => f.Decision == "Pendiente" && idsMongo.Contains(f.IdDocumento))
+                    .Select(f => f.IdDocumento)
+                    .Distinct()
+                    .ToList();
+
+                if (idsPendientes.Count == 0)
+                    return Ok(new { Mensaje = "No hay documentos pendientes de revisión.", Total = 0, Resultados = new List<object>() });
+
+                var documentosSQL = _sqlContext.Documentos
+                    .Where(d => idsPendientes.Contains(d.Id))
+                    .ToList();
+
+                var resultados = documentosSQL.Select(docSql =>
+                {
+                    var docMongo = todosMongo.FirstOrDefault(m => m.SqlId == docSql.Id);
+                    return new
+                    {
+                        Documento = docMongo,
+                        Estado    = docSql.IdEstado switch { 1 => "Borrador", 2 => "Aprobado", 3 => "Obsoleto", _ => "Desconocido" },
+                        Version   = docSql.NumeroVersion
+                    };
+                }).ToList();
+
+                return Ok(new { Mensaje = "Documentos pendientes de revisión", Total = resultados.Count, Resultados = resultados });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { Error = "Error al obtener pendientes.", Detalle = ex.Message });
+            }
+        }
+
+        // ═══════════════════════════════════════════════════════════════════
         // PUT: api/Documentos/solicitar-aprobacion/{id}
-        // PASO 1 del flujo de aprobación.
-        // Usa TieneAccesoParaModificar (escritura estricta):
-        //   - Supervisor de Calidad NO puede solicitar aprobación de un doc
-        //     del área General aunque pueda verlo.
+        // Solo Admin y Supervisor pueden solicitar revisión.
         // ═══════════════════════════════════════════════════════════════════
         [Authorize(Policy = "SubeYAprueba")]
         [HttpPut("solicitar-aprobacion/{id}")]
@@ -383,14 +425,13 @@ namespace QualityDocAPI.Controllers
 
                 var (idUsuario, rol, esGeneral, idAreaToken) = ObtenerDatosToken();
 
-                // ── Acceso estricto: Supervisor solo puede gestionar SU área ──
                 if (!TieneAccesoParaModificar(rol, esGeneral, idAreaToken, documento.IdArea))
-                    return StatusCode(403, new { Mensaje = "No puedes solicitar aprobación para documentos de otra área. Los documentos del área General solo pueden ser gestionados por el Admin o el Supervisor General." });
+                    return StatusCode(403, new { Mensaje = "No puedes solicitar aprobación para documentos de otra área." });
 
                 bool yaExistePendiente = _sqlContext.FlujoAprobacion
                     .Any(f => f.IdDocumento == id && f.Decision == "Pendiente");
                 if (yaExistePendiente)
-                    return BadRequest(new { Mensaje = "Este documento ya tiene una solicitud de aprobación pendiente. Espera a que un revisor la resuelva." });
+                    return BadRequest(new { Mensaje = "Este documento ya tiene una solicitud de aprobación pendiente." });
 
                 var flujo = new FlujoAprobacionSQL
                 {
@@ -401,6 +442,16 @@ namespace QualityDocAPI.Controllers
                 };
                 _sqlContext.FlujoAprobacion.Add(flujo);
                 await _sqlContext.SaveChangesAsync();
+
+                // Actualizar MongoDB para reflejar que está pendiente
+                var filtroMongo = Builders<DocumentoMongo>.Filter.Eq(d => d.SqlId, id);
+                var updateMongo = Builders<DocumentoMongo>.Update.Set(d => d.UltimoFlujo, new UltimoFlujoMongo
+                {
+                    Decision        = "Pendiente",
+                    RevisadoPor     = "",
+                    FechaResolucion = DateTime.Now
+                });
+                await _mongoCollection.UpdateOneAsync(filtroMongo, updateMongo);
 
                 await RegistrarLogAsync(idUsuario, id, "SOLICITÓ REVISIÓN", documento.Titulo);
 
@@ -422,12 +473,9 @@ namespace QualityDocAPI.Controllers
 
         // ═══════════════════════════════════════════════════════════════════
         // PUT: api/Documentos/resolver-aprobacion/{idFlujo}
-        // PASO 2 del flujo de aprobación.
-        // Usa TieneAccesoParaModificar (escritura estricta):
-        //   - Supervisor de Calidad NO puede aprobar un doc del área General.
-        // Body: { "Decision": "Aprobado", "Comentarios": "..." }
+        // Solo Admin (1) y Revisor (4) pueden resolver aprobaciones.
         // ═══════════════════════════════════════════════════════════════════
-        [Authorize(Policy = "SubeYAprueba")]
+        [Authorize(Policy = "PuedeRevisar")]
         [HttpPut("resolver-aprobacion/{idFlujo}")]
         public async Task<IActionResult> ResolverAprobacion(int idFlujo, [FromBody] ResolverAprobacionDTO datos)
         {
@@ -444,13 +492,14 @@ namespace QualityDocAPI.Controllers
 
                 var documento = await _sqlContext.Documentos.FindAsync(flujo.IdDocumento);
                 if (documento == null)
-                    return NotFound(new { Mensaje = "El documento asociado a esta solicitud no existe." });
+                    return NotFound(new { Mensaje = "El documento asociado no existe." });
 
                 var (idUsuario, rol, esGeneral, idAreaToken) = ObtenerDatosToken();
 
-                // ── Acceso estricto: Supervisor solo puede resolver flujos de SU área ──
                 if (!TieneAccesoParaModificar(rol, esGeneral, idAreaToken, documento.IdArea))
-                    return StatusCode(403, new { Mensaje = "No puedes resolver aprobaciones de documentos de otra área. Los documentos del área General solo pueden ser aprobados por el Admin o el Supervisor General." });
+                    return StatusCode(403, new { Mensaje = "No puedes resolver aprobaciones de documentos de otra área." });
+
+                var nombreRevisor = User.FindFirst(ClaimTypes.Name)?.Value ?? "Revisor";
 
                 flujo.IdRevisor       = idUsuario;
                 flujo.Decision        = datos.Decision;
@@ -462,12 +511,22 @@ namespace QualityDocAPI.Controllers
 
                 await _sqlContext.SaveChangesAsync();
 
+                // Actualizar MongoDB con el resultado de la aprobación
+                var filtroMongo = Builders<DocumentoMongo>.Filter.Eq(d => d.SqlId, documento.Id);
+                var updateMongo = Builders<DocumentoMongo>.Update.Set(d => d.UltimoFlujo, new UltimoFlujoMongo
+                {
+                    Decision        = datos.Decision,
+                    RevisadoPor     = nombreRevisor,
+                    FechaResolucion = DateTime.Now
+                });
+                await _mongoCollection.UpdateOneAsync(filtroMongo, updateMongo);
+
                 string accionLog = datos.Decision == "Aprobado" ? "APROBÓ" : "RECHAZÓ";
                 await RegistrarLogAsync(idUsuario, documento.Id, accionLog, datos.Comentarios ?? documento.Titulo);
 
                 string mensajeResultado = datos.Decision == "Aprobado"
                     ? "Documento aprobado. Ya está disponible para todos los usuarios del sistema."
-                    : "Documento rechazado. Regresa a Borrador. El solicitante puede corregirlo y pedir revisión nuevamente.";
+                    : "Documento rechazado. Regresa a Borrador.";
 
                 return Ok(new
                 {
@@ -487,10 +546,6 @@ namespace QualityDocAPI.Controllers
 
         // ═══════════════════════════════════════════════════════════════════
         // GET: api/Documentos/{id}/flujo
-        // Historial del flujo de aprobación.
-        // Usa TieneAccesoParaVer (lectura amplia):
-        //   - Supervisor puede ver el historial de un doc del área General,
-        //     aunque no pueda modificarlo.
         // ═══════════════════════════════════════════════════════════════════
         [Authorize(Policy = "SubeYAprueba")]
         [HttpGet("{id}/flujo")]
@@ -504,7 +559,6 @@ namespace QualityDocAPI.Controllers
 
                 var (_, rol, esGeneral, idAreaToken) = ObtenerDatosToken();
 
-                // Lectura amplia: puede ver el historial si tiene acceso al doc
                 if (!TieneAccesoParaVer(rol, esGeneral, idAreaToken, documento.IdArea))
                     return StatusCode(403, new { Mensaje = "No puedes ver el flujo de documentos de otra área." });
 
@@ -572,9 +626,6 @@ namespace QualityDocAPI.Controllers
 
         // ═══════════════════════════════════════════════════════════════════
         // GET: api/Documentos/descargar/{id}
-        // Usa TieneAccesoParaVer (lectura amplia):
-        //   - Supervisores y Operarios pueden descargar docs del área General.
-        //   - Operarios solo si el doc está Aprobado.
         // ═══════════════════════════════════════════════════════════════════
         [Authorize]
         [HttpGet("descargar/{id}")]
@@ -588,11 +639,9 @@ namespace QualityDocAPI.Controllers
 
                 var (idUsuario, rol, esGeneral, idAreaToken) = ObtenerDatosToken();
 
-                // Lectura amplia: su área + áreas Generales de la BD
                 if (!TieneAccesoParaVer(rol, esGeneral, idAreaToken, documento.IdArea))
                     return StatusCode(403, new { Mensaje = "Este documento no pertenece a tu área." });
 
-                // Operarios: solo documentos Aprobados
                 if (rol == "3" && documento.IdEstado != 2)
                     return StatusCode(403, new { Mensaje = "Solo puedes descargar documentos aprobados." });
 
@@ -651,20 +700,12 @@ namespace QualityDocAPI.Controllers
             }
             catch (Exception ex)
             {
-                return StatusCode(500, new
-                {
-                    Error     = "Error en la descarga",
-                    Detalle   = ex.Message,
-                    CausaReal = ex.InnerException?.Message ?? "Sin error interno.",
-                    Pista     = ex.StackTrace?.Split('\n').FirstOrDefault()
-                });
+                return StatusCode(500, new { Error = "Error en la descarga", Detalle = ex.Message });
             }
         }
 
         // ═══════════════════════════════════════════════════════════════════
         // POST: api/Documentos/{id}/nueva-version
-        // Usa TieneAccesoParaModificar (escritura estricta):
-        //   - Supervisor de Calidad NO puede versionar un doc del área General.
         // ═══════════════════════════════════════════════════════════════════
         [Authorize(Policy = "SubeYAprueba")]
         [HttpPost("{id}/nueva-version")]
@@ -674,7 +715,7 @@ namespace QualityDocAPI.Controllers
             bool tieneTexto   = !string.IsNullOrWhiteSpace(datos.ContenidoTexto);
 
             if (!tieneArchivo && !tieneTexto)
-                return BadRequest(new { Mensaje = "Debes adjuntar un archivo PDF o escribir el contenido del documento." });
+                return BadRequest(new { Mensaje = "Debes adjuntar un archivo PDF o escribir el contenido." });
 
             try
             {
@@ -684,14 +725,13 @@ namespace QualityDocAPI.Controllers
 
                 var (idUsuario, rol, esGeneral, idAreaToken) = ObtenerDatosToken();
 
-                // ── Acceso estricto: Supervisor solo puede versionar SU área ──
                 if (!TieneAccesoParaModificar(rol, esGeneral, idAreaToken, documento.IdArea))
-                    return StatusCode(403, new { Mensaje = "No puedes subir versiones de documentos de otra área. Los documentos del área General solo pueden ser modificados por el Admin o el Supervisor General." });
+                    return StatusCode(403, new { Mensaje = "No puedes subir versiones de documentos de otra área." });
 
                 bool hayPendiente = _sqlContext.FlujoAprobacion
                     .Any(f => f.IdDocumento == id && f.Decision == "Pendiente");
                 if (hayPendiente)
-                    return BadRequest(new { Mensaje = "Hay una solicitud de aprobación pendiente para este documento. Resuélvela antes de subir una nueva versión." });
+                    return BadRequest(new { Mensaje = "Hay una solicitud de aprobación pendiente. Resuélvela antes de subir una nueva versión." });
 
                 string textoExtraido      = "";
                 string rutaNueva          = documento.RutaArchivo;
@@ -709,7 +749,7 @@ namespace QualityDocAPI.Controllers
 
                     var sftpSettings   = _config.GetSection("SftpConfig");
                     nombreArchivoNuevo = $"{Guid.NewGuid()}_{datos.Archivo.FileName}";
-                    string remotePath  = sftpSettings["RemotePath"] ?? "/home/sarahi/uploads";
+                    string remotePath  = sftpSettings["RemotePath"] ?? "/uploads";
                     rutaNueva          = $"{remotePath}/{nombreArchivoNuevo}";
 
                     using (var client = new SftpClient(
@@ -756,19 +796,21 @@ namespace QualityDocAPI.Controllers
                 await _sqlContext.SaveChangesAsync();
 
                 var filtroMongo = Builders<DocumentoMongo>.Filter.Eq(d => d.SqlId, id);
-                var updateMongo = Builders<DocumentoMongo>.Update.Set(d => d.Descripcion, textoExtraido);
+                var updateMongo = Builders<DocumentoMongo>.Update
+                    .Set(d => d.Descripcion, textoExtraido)
+                    .Set(d => d.UltimoFlujo, null); // reset flujo al subir nueva versión
                 await _mongoCollection.UpdateOneAsync(filtroMongo, updateMongo);
 
                 await RegistrarLogAsync(idUsuario, id, "NUEVA VERSIÓN", $"v{nuevaVersion} - {datos.ComentarioCambio}");
 
                 return Ok(new
                 {
-                    Mensaje          = $"Versión {nuevaVersion} subida correctamente. El documento regresa a Borrador para un nuevo ciclo de aprobación.",
+                    Mensaje          = $"Versión {nuevaVersion} subida. El documento regresa a Borrador.",
                     IdDocumento      = id,
                     NuevaVersion     = nuevaVersion,
                     EstadoActual     = "Borrador",
                     ComentarioCambio = datos.ComentarioCambio,
-                    SiguientePaso    = $"Solicita aprobación de la versión {nuevaVersion} en: PUT /api/Documentos/solicitar-aprobacion/{id}"
+                    SiguientePaso    = $"Solicita aprobación en: PUT /api/Documentos/solicitar-aprobacion/{id}"
                 });
             }
             catch (Exception ex)
@@ -779,11 +821,6 @@ namespace QualityDocAPI.Controllers
 
         // ═══════════════════════════════════════════════════════════════════
         // GET: api/Documentos/{id}/versiones
-        // Usa TieneAccesoParaModificar (escritura estricta):
-        //   - Ver el historial de versiones es una operación sensible de auditoría,
-        //     reservada al área propietaria del documento y al Admin.
-        //   - Un Supervisor de otra área puede ver el documento pero no su
-        //     historial interno de versiones.
         // ═══════════════════════════════════════════════════════════════════
         [Authorize(Policy = "SubeYAprueba")]
         [HttpGet("{id}/versiones")]
@@ -797,7 +834,6 @@ namespace QualityDocAPI.Controllers
 
                 var (_, rol, esGeneral, idAreaToken) = ObtenerDatosToken();
 
-                // Acceso estricto: el historial de versiones es de gestión interna del área
                 if (!TieneAccesoParaModificar(rol, esGeneral, idAreaToken, documento.IdArea))
                     return StatusCode(403, new { Mensaje = "No puedes ver el historial de versiones de documentos de otra área." });
 
@@ -856,18 +892,6 @@ namespace QualityDocAPI.Controllers
 
         // ═══════════════════════════════════════════════════════════════════
         // GET: api/Documentos/{id}/versiones/{numeroVersion}/descargar
-        // Descarga una versión específica del documento desde el historial.
-        //
-        // Diferencia con DescargarDocumento:
-        //   - DescargarDocumento → siempre descarga la versión ACTUAL (tabla Documentos)
-        //   - Este endpoint      → descarga cualquier versión del historial (tabla VersionesDocumento)
-        //
-        // Mismas reglas de acceso que DescargarDocumento:
-        //   - Admin / área General: sin restricciones.
-        //   - Supervisor: su área + áreas Generales, cualquier estado.
-        //   - Operario: su área + áreas Generales, solo si el doc está Aprobado.
-        //     (Un operario no debería ver versiones históricas, pero si intentara
-        //      acceder directamente se bloquea igual que en la descarga normal.)
         // ═══════════════════════════════════════════════════════════════════
         [Authorize(Policy = "SubeYAprueba")]
         [HttpGet("{id}/versiones/{numeroVersion}/descargar")]
@@ -875,18 +899,15 @@ namespace QualityDocAPI.Controllers
         {
             try
             {
-                // Verificar que el documento existe y que el usuario tiene acceso
                 var documento = await _sqlContext.Documentos.FindAsync(id);
                 if (documento == null)
                     return NotFound(new { Mensaje = "Documento no encontrado." });
 
                 var (idUsuario, rol, esGeneral, idAreaToken) = ObtenerDatosToken();
 
-                // Acceso de lectura: su área + áreas Generales
                 if (!TieneAccesoParaVer(rol, esGeneral, idAreaToken, documento.IdArea))
                     return StatusCode(403, new { Mensaje = "Este documento no pertenece a tu área." });
 
-                // Buscar la versión específica en el historial
                 var version = _sqlContext.VersionesDocumento
                     .FirstOrDefault(v => v.IdDocumento == id && v.NumeroVersion == numeroVersion);
 
@@ -910,7 +931,6 @@ namespace QualityDocAPI.Controllers
                     }
                     memoryStream.Position = 0;
 
-                    // Limpiar el UUID del nombre del archivo
                     string nombreBonito = version.NombreArchivo;
                     int    idx          = nombreBonito.IndexOf('_');
                     nombreBonito = idx >= 0
@@ -922,11 +942,8 @@ namespace QualityDocAPI.Controllers
                 }
                 else
                 {
-                    // Versión de texto — generamos PDF con el contenido de esa versión
                     string titulo    = string.IsNullOrWhiteSpace(documento.Titulo) ? "Documento Sin Título" : documento.Titulo;
-                    string contenido = string.IsNullOrWhiteSpace(version.ComentarioCambio)
-                        ? "Versión sin contenido de texto."
-                        : version.ComentarioCambio;
+                    string contenido = string.IsNullOrWhiteSpace(version.ComentarioCambio) ? "Versión sin contenido." : version.ComentarioCambio;
 
                     string html = $@"
                         <html><head><style>
@@ -956,18 +973,12 @@ namespace QualityDocAPI.Controllers
             }
             catch (Exception ex)
             {
-                return StatusCode(500, new
-                {
-                    Error     = "Error al descargar la versión.",
-                    Detalle   = ex.Message,
-                    CausaReal = ex.InnerException?.Message ?? "Sin error interno."
-                });
+                return StatusCode(500, new { Error = "Error al descargar la versión.", Detalle = ex.Message });
             }
         }
 
         // ─────────────────────────────────────────────────────────────────
-        // GET: api/Documentos/ver-todo-mongo — solo para debug en desarrollo.
-        // Antes de producción cambiar [AllowAnonymous] por [Authorize(Policy = "SoloAdmin")]
+        // GET: api/Documentos/ver-todo-mongo — debug en desarrollo
         // ─────────────────────────────────────────────────────────────────
         [AllowAnonymous]
         [HttpGet("ver-todo-mongo")]

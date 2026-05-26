@@ -2,8 +2,11 @@ import { useState } from 'react'
 import api from '../../api/axios'
 import '../../components/Seccion.css'
 import EditorTexto from '../../components/EditorTexto'
+import { useAuth } from '../../context/AuthContext'
 
 export default function SeccionDocumentos() {
+  const { usuario } = useAuth()
+
   const [busqueda, setBusqueda]       = useState('')
   const [resultados, setResultados]   = useState([])
   const [buscando, setBuscando]       = useState(false)
@@ -14,9 +17,10 @@ export default function SeccionDocumentos() {
   const [modalSubir, setModalSubir]   = useState(false)
   const [areas, setAreas]             = useState([])
   const [formDoc, setFormDoc]         = useState({
-    Titulo: '', Autor: '', IdCategoria: 1, IdArea: '', ContenidoTexto: ''
+    Titulo: '', IdCategoria: 1, IdArea: '', ContenidoTexto: ''
   })
   const [archivo, setArchivo]         = useState(null)
+  const [etiquetasInput, setEtiquetasInput] = useState('')
   const [subiendoDoc, setSubiendoDoc] = useState(false)
   const [errorSubir, setErrorSubir]   = useState('')
   const [okSubir, setOkSubir]         = useState('')
@@ -114,8 +118,9 @@ export default function SeccionDocumentos() {
       const r = await api.get('/Areas')
       setAreas(r.data.areas || [])
     } catch { setAreas([]) }
-    setFormDoc({ Titulo: '', Autor: '', IdCategoria: 1, IdArea: '', ContenidoTexto: '' })
+    setFormDoc({ Titulo: '', IdCategoria: 1, IdArea: '', ContenidoTexto: '' })
     setArchivo(null)
+    setEtiquetasInput('')
     setErrorSubir('')
     setOkSubir('')
     setModalSubir(true)
@@ -126,8 +131,6 @@ export default function SeccionDocumentos() {
     setSubiendoDoc(true)
     setErrorSubir('')
 
-    // Validación en el frontend antes de llamar al backend:
-    // el usuario debe adjuntar un PDF o escribir algo en el editor
     const tieneArchivo  = !!archivo
     const tieneContenido = formDoc.ContenidoTexto &&
       formDoc.ContenidoTexto.replace(/<[^>]*>/g, '').trim() !== ''
@@ -141,11 +144,15 @@ export default function SeccionDocumentos() {
     try {
       const fd = new FormData()
       fd.append('Titulo',      formDoc.Titulo)
-      fd.append('Autor',       formDoc.Autor)
       fd.append('IdCategoria', formDoc.IdCategoria)
       if (formDoc.IdArea)              fd.append('IdArea',        formDoc.IdArea)
       if (archivo)                     fd.append('Archivo',       archivo)
       else if (formDoc.ContenidoTexto) fd.append('ContenidoTexto', formDoc.ContenidoTexto)
+
+      // Etiquetas
+      const etiquetas = etiquetasInput.split(',').map(e => e.trim()).filter(Boolean)
+      etiquetas.forEach(tag => fd.append('Etiquetas', tag))
+
       await api.post('/Documentos', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
       setOkSubir('Documento subido correctamente.')
       setTimeout(() => { setModalSubir(false); setOkSubir('') }, 2000)
@@ -323,6 +330,37 @@ export default function SeccionDocumentos() {
                       <td>
                         <div style={{ fontWeight: 500 }}>{doc.titulo}</div>
                         <div style={{ fontSize: '0.8rem', color: '#9ca3af' }}>{doc.categoria}</div>
+                        {/* ── Auditoría ── */}
+                        <div style={{ fontSize: '0.75rem', color: '#6b7280', marginTop: '4px' }}>
+                          {doc.subidoPor && <span>Subido por: <strong>{doc.subidoPor}</strong></span>}
+                          {doc.fechaSubida && <span> · {formatFecha(doc.fechaSubida)}</span>}
+                        </div>
+                        {doc.ultimoFlujo && (
+                          <div style={{ fontSize: '0.75rem', marginTop: '2px' }}>
+                            <span style={{
+                              padding: '1px 6px', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 600,
+                              background: doc.ultimoFlujo.decision === 'Aprobado' ? '#dcfce7' :
+                                          doc.ultimoFlujo.decision === 'Rechazado' ? '#fee2e2' : '#fef9c3',
+                              color: doc.ultimoFlujo.decision === 'Aprobado' ? '#166534' :
+                                     doc.ultimoFlujo.decision === 'Rechazado' ? '#991b1b' : '#854d0e'
+                            }}>
+                              {doc.ultimoFlujo.decision}
+                            </span>
+                            {doc.ultimoFlujo.revisadoPor && (
+                              <span style={{ color: '#6b7280' }}> · {doc.ultimoFlujo.revisadoPor}</span>
+                            )}
+                          </div>
+                        )}
+                        {doc.etiquetas?.length > 0 && (
+                          <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginTop: '4px' }}>
+                            {doc.etiquetas.map((e, j) => (
+                              <span key={j} style={{
+                                background: '#eff6ff', color: '#1d4ed8', fontSize: '0.68rem',
+                                padding: '1px 6px', borderRadius: '4px', border: '1px solid #bfdbfe'
+                              }}>{e}</span>
+                            ))}
+                          </div>
+                        )}
                       </td>
                       <td>{doc.area}</td>
                       <td>{badgeEstado(estado)}</td>
@@ -340,7 +378,6 @@ export default function SeccionDocumentos() {
                           <button className="btn-secundario" onClick={() => verFlujo(r)}>
                             Flujo
                           </button>
-                          {/* Admin puede ver versiones de cualquier documento */}
                           <button className="btn-secundario" onClick={() => verVersiones(r)}>
                             Versiones
                           </button>
@@ -375,12 +412,6 @@ export default function SeccionDocumentos() {
                     placeholder="Nombre del documento" />
                 </div>
                 <div className="campo-form">
-                  <label>Autor *</label>
-                  <input required value={formDoc.Autor}
-                    onChange={(e) => setFormDoc({ ...formDoc, Autor: e.target.value })}
-                    placeholder="Nombre del autor" />
-                </div>
-                <div className="campo-form">
                   <label>Categoría *</label>
                   <select value={formDoc.IdCategoria}
                     onChange={(e) => setFormDoc({ ...formDoc, IdCategoria: e.target.value })}>
@@ -389,16 +420,33 @@ export default function SeccionDocumentos() {
                     ))}
                   </select>
                 </div>
+
+                {/* Selector de área — solo visible para usuarios del área General */}
+                {(usuario?.es_area_general === true || usuario?.es_area_general === 'true' || usuario?.es_area_general === 'True') && (
+                  <div className="campo-form">
+                    <label>Área de destino</label>
+                    <select value={formDoc.IdArea}
+                      onChange={(e) => setFormDoc({ ...formDoc, IdArea: e.target.value })}>
+                      <option value="">— Heredar mi área —</option>
+                      {areas.map((a) => (
+                        <option key={a.id} value={a.id}>{a.nombre}</option>
+                      ))}
+                    </select>
+                    <span style={{ fontSize: '0.75rem', color: '#9ca3af', fontStyle: 'italic' }}>
+                      Solo visible para usuarios del área General
+                    </span>
+                  </div>
+                )}
+
+                {/* Etiquetas */}
                 <div className="campo-form">
-                  <label>Área (opcional)</label>
-                  <select value={formDoc.IdArea}
-                    onChange={(e) => setFormDoc({ ...formDoc, IdArea: e.target.value })}>
-                    <option value="">-- Sin área específica (usará General) --</option>
-                    {areas.map((a) => (
-                      <option key={a.id} value={a.id}>{a.nombre}</option>
-                    ))}
-                  </select>
+                  <label>Etiquetas <span style={{ fontWeight: 400, color: '#9ca3af' }}>(separa con comas)</span></label>
+                  <input
+                    value={etiquetasInput}
+                    onChange={(e) => setEtiquetasInput(e.target.value)}
+                    placeholder="calidad, iso, manual…" />
                 </div>
+
                 <div className="campo-form" style={{ gridColumn: '1 / -1' }}>
                   <label>Archivo PDF</label>
                   <input type="file" accept=".pdf"
@@ -593,7 +641,6 @@ export default function SeccionDocumentos() {
                             {v.comentarioCambio || '—'}
                           </td>
                           <td>
-                            {/* Botón de descarga por versión — Admin puede descargar cualquiera */}
                             <button
                               className="btn-secundario"
                               onClick={() => handleDescargarVersion(

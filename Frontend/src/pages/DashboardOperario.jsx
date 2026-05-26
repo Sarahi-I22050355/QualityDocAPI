@@ -15,6 +15,11 @@ function SeccionDocumentosOperario() {
   const [error, setError]           = useState('')
   const [buscadoYa, setBuscadoYa]   = useState(false)
 
+  const formatFecha = (f) => f ? new Date(f).toLocaleString('es-MX', {
+    day: '2-digit', month: '2-digit', year: 'numeric',
+    hour: '2-digit', minute: '2-digit'
+  }) : '—'
+
   const handleBuscar = async (e) => {
     e.preventDefault()
     if (!busqueda.trim()) return
@@ -99,7 +104,29 @@ function SeccionDocumentosOperario() {
                   const doc = r.documento ?? r
                   return (
                     <tr key={doc.sqlId ?? i}>
-                      <td><strong>{doc.titulo}</strong></td>
+                      <td>
+                        <strong>{doc.titulo}</strong>
+                        {/* ── Auditoría ── */}
+                        <div style={{ fontSize: '0.75rem', color: '#6b7280', marginTop: '4px' }}>
+                          {doc.subidoPor && <span>Subido por: <strong>{doc.subidoPor}</strong></span>}
+                          {doc.fechaSubida && <span> · {formatFecha(doc.fechaSubida)}</span>}
+                        </div>
+                        {doc.ultimoFlujo?.revisadoPor && (
+                          <div style={{ fontSize: '0.75rem', color: '#6b7280', marginTop: '2px' }}>
+                            Aprobado por: <strong>{doc.ultimoFlujo.revisadoPor}</strong>
+                          </div>
+                        )}
+                        {doc.etiquetas?.length > 0 && (
+                          <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginTop: '4px' }}>
+                            {doc.etiquetas.map((e, j) => (
+                              <span key={j} style={{
+                                background: '#eff6ff', color: '#1d4ed8', fontSize: '0.68rem',
+                                padding: '1px 6px', borderRadius: '4px', border: '1px solid #bfdbfe'
+                              }}>{e}</span>
+                            ))}
+                          </div>
+                        )}
+                      </td>
                       <td>{doc.categoria}</td>
                       <td>
                         {doc.area}
@@ -138,7 +165,6 @@ function SeccionDocumentosOperario() {
   )
 }
 
-// El dashboard del Operario solo tiene una sección
 const SECCIONES = [
   { id: 'documentos', label: 'Documentos', icono: '📄' },
 ]
