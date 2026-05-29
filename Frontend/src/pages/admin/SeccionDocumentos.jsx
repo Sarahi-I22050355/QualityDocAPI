@@ -3,6 +3,7 @@ import api from '../../api/axios'
 import '../../components/Seccion.css'
 import EditorTexto from '../../components/EditorTexto'
 import { useAuth } from '../../context/AuthContext'
+import { CATEGORIAS } from '../../utils/categorias'
 
 export default function SeccionDocumentos() {
   const { usuario } = useAuth()
@@ -52,14 +53,7 @@ export default function SeccionDocumentos() {
   const [subiendoVer, setSubVer]      = useState(false)
   const [errorNV, setErrorNV]         = useState('')
 
-  const categorias = [
-    { id: 1, nombre: 'Manual de Calidad' },
-    { id: 2, nombre: 'Procedimiento' },
-    { id: 3, nombre: 'Instrucción de Trabajo' },
-    { id: 4, nombre: 'Registro de Calidad' },
-    { id: 5, nombre: 'Plan de Control' },
-    { id: 6, nombre: 'Auditoría' },
-  ]
+  const categorias = CATEGORIAS
 
   // ── Buscar ────────────────────────────────────────────────────────
   const handleBuscar = async (e) => {

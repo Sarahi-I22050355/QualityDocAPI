@@ -2,6 +2,7 @@ import { useState } from 'react'
 import api from '../../api/axios'
 import '../../components/Seccion.css'
 import EditorTexto from '../../components/EditorTexto'
+import { CATEGORIAS } from '../../utils/categorias'
 
 export default function SeccionDocumentosSupervisor() {
   const [busqueda, setBusqueda]     = useState('')
@@ -42,14 +43,7 @@ export default function SeccionDocumentosSupervisor() {
   const [errorVer, setErrorVer]           = useState('')
   const [okVer, setOkVer]                 = useState('')
 
-  const categorias = [
-    { id: 1, nombre: 'Manual de Calidad' },
-    { id: 2, nombre: 'Procedimiento' },
-    { id: 3, nombre: 'Instrucción de Trabajo' },
-    { id: 4, nombre: 'Registro de Calidad' },
-    { id: 5, nombre: 'Plan de Control' },
-    { id: 6, nombre: 'Auditoría' },
-  ]
+  const categorias = CATEGORIAS
 
   const esDocGeneral = (r) => {
     const area = r.documento?.area ?? r.area ?? ''
