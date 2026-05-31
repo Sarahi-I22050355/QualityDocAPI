@@ -7,13 +7,11 @@ namespace QualityDocAPI.Data
     {
         public SqlContext(DbContextOptions<SqlContext> options) : base(options) { }
 
-        // Tablas originales
-        public DbSet<DocumentoSQL>   Documentos   { get; set; }
-        public DbSet<AreaSQL>        Areas        { get; set; }
-        public DbSet<LogAccesoSQL>   LogAccesos   { get; set; }
-
-        // Nuevas tablas integradas
-        public DbSet<FlujoAprobacionSQL>  FlujoAprobacion   { get; set; }
+        public DbSet<DocumentoSQL>        Documentos         { get; set; }
+        public DbSet<AreaSQL>             Areas              { get; set; }
+        public DbSet<LogAccesoSQL>        LogAccesos         { get; set; }
+        public DbSet<FlujoAprobacionSQL>  FlujoAprobacion    { get; set; }
         public DbSet<VersionDocumentoSQL> VersionesDocumento { get; set; }
+        public DbSet<EmpresaSQL>          Empresas           { get; set; }
     }
 }

@@ -23,9 +23,20 @@ namespace QualityDocAPI.Controllers
         }
 
         // ─────────────────────────────────────────────────────────────────
+        // HELPER: extrae id_empresa del token
+        // ─────────────────────────────────────────────────────────────────
+        private int? GetIdEmpresaToken()
+        {
+            var val = User.FindFirst("id_empresa")?.Value;
+            return int.TryParse(val, out int e) && e != 0 ? e : (int?)null;
+        }
+
+        private bool EsSuperAdmin() =>
+            User.FindFirst("idRol")?.Value == "5";
+
+        // ─────────────────────────────────────────────────────────────────
         // GET: api/Usuarios
-        // Lista todos los usuarios del sistema con su rol y área.
-        // Solo Admin. Útil para el panel de gestión de usuarios en el frontend.
+        // Admin: ve usuarios de su empresa.
         // ─────────────────────────────────────────────────────────────────
         [Authorize(Policy = "SoloAdmin")]
         [HttpGet]
@@ -33,7 +44,8 @@ namespace QualityDocAPI.Controllers
         {
             try
             {
-                var usuarios = new List<object>();
+                var idEmpresa = GetIdEmpresaToken();
+                var usuarios  = new List<object>();
 
                 string query = @"
                     SELECT
@@ -47,13 +59,15 @@ namespace QualityDocAPI.Controllers
                         ISNULL(a.nombre, 'Sin área') AS nombre_area
                     FROM  Usuarios u
                     INNER JOIN Roles r ON u.id_rol  = r.id_rol
-                    LEFT  JOIN Areas a ON u.id_area = a.id_area
+                    LEFT  JOIN Areas  a ON u.id_area = a.id_area
+                    WHERE u.id_empresa = @idEmpresa
                     ORDER BY u.fecha_creacion DESC";
 
                 using (var con = new SqlConnection(_config.GetConnectionString("SqlConexion")))
                 {
                     con.Open();
                     using var cmd = new SqlCommand(query, con);
+                    cmd.Parameters.AddWithValue("@idEmpresa", (object?)idEmpresa ?? DBNull.Value);
                     using var rd  = cmd.ExecuteReader();
                     while (rd.Read())
                     {
@@ -83,9 +97,6 @@ namespace QualityDocAPI.Controllers
 
         // ─────────────────────────────────────────────────────────────────
         // PUT: api/Usuarios/{id}/estado
-        // Activa o desactiva un usuario.
-        // Solo Admin. El Admin no puede desactivarse a sí mismo.
-        // Body: { "Activo": false }
         // ─────────────────────────────────────────────────────────────────
         [Authorize(Policy = "SoloAdmin")]
         [HttpPut("{id}/estado")]
@@ -93,7 +104,6 @@ namespace QualityDocAPI.Controllers
         {
             try
             {
-                // El Admin no puede desactivarse a sí mismo
                 var idAdminActual = User.FindFirst("id")?.Value;
                 if (idAdminActual == id.ToString() && !datos.Activo)
                     return BadRequest(new { mensaje = "No puedes desactivarte a ti mismo." });
@@ -101,20 +111,21 @@ namespace QualityDocAPI.Controllers
                 string query = @"
                     UPDATE Usuarios
                     SET    activo = @activo
-                    WHERE  id_usuario = @id";
+                    WHERE  id_usuario = @id AND id_empresa = @idEmpresa";
 
                 int filasAfectadas;
                 using (var con = new SqlConnection(_config.GetConnectionString("SqlConexion")))
                 {
                     con.Open();
                     using var cmd = new SqlCommand(query, con);
-                    cmd.Parameters.AddWithValue("@activo", datos.Activo);
-                    cmd.Parameters.AddWithValue("@id",     id);
+                    cmd.Parameters.AddWithValue("@activo",    datos.Activo);
+                    cmd.Parameters.AddWithValue("@id",        id);
+                    cmd.Parameters.AddWithValue("@idEmpresa", (object?)GetIdEmpresaToken() ?? DBNull.Value);
                     filasAfectadas = cmd.ExecuteNonQuery();
                 }
 
                 if (filasAfectadas == 0)
-                    return NotFound(new { mensaje = $"No existe un usuario con ID {id}." });
+                    return NotFound(new { mensaje = $"No existe un usuario con ID {id} en tu empresa." });
 
                 string accion = datos.Activo ? "activado" : "desactivado";
                 return Ok(new { mensaje = $"Usuario {accion} correctamente." });
@@ -127,7 +138,7 @@ namespace QualityDocAPI.Controllers
 
         // ─────────────────────────────────────────────────────────────────
         // POST: api/Usuarios/crear
-        // Solo Admin puede crear usuarios y asignarles área.
+        // Admin crea usuarios en su propia empresa (id_empresa del token).
         // ─────────────────────────────────────────────────────────────────
         [Authorize(Policy = "SoloAdmin")]
         [HttpPost("crear")]
@@ -135,31 +146,41 @@ namespace QualityDocAPI.Controllers
         {
             try
             {
+                var idEmpresa = GetIdEmpresaToken();
+                if (idEmpresa == null)
+                    return BadRequest(new { mensaje = "No se pudo determinar la empresa del administrador." });
+
                 string passwordEncriptada = BCrypt.Net.BCrypt.HashPassword(datos.Password);
 
                 using (SqlConnection con = new SqlConnection(_config.GetConnectionString("SqlConexion")))
                 {
                     con.Open();
 
-                    string verificarArea = "SELECT COUNT(*) FROM Areas WHERE id_area = @idArea AND activo = 1";
+                    // El área debe pertenecer a la misma empresa
+                    string verificarArea = @"
+                        SELECT COUNT(*) FROM Areas
+                        WHERE id_area = @idArea AND activo = 1 AND id_empresa = @idEmpresa";
                     using (SqlCommand cmdCheck = new SqlCommand(verificarArea, con))
                     {
-                        cmdCheck.Parameters.AddWithValue("@idArea", datos.IdArea);
+                        cmdCheck.Parameters.AddWithValue("@idArea",    datos.IdArea);
+                        cmdCheck.Parameters.AddWithValue("@idEmpresa", idEmpresa);
                         int existe = (int)cmdCheck.ExecuteScalar();
                         if (existe == 0)
-                            return BadRequest(new { mensaje = $"El área con ID {datos.IdArea} no existe o está inactiva." });
+                            return BadRequest(new { mensaje = $"El área con ID {datos.IdArea} no existe en tu empresa." });
                     }
 
-                    string query = @"INSERT INTO Usuarios (id_rol, id_area, nombre_completo, email, password_hash)
-                                     VALUES (@idRol, @idArea, @nombre, @email, @pass)";
+                    string query = @"
+                        INSERT INTO Usuarios (id_rol, id_area, id_empresa, nombre_completo, email, password_hash)
+                        VALUES (@idRol, @idArea, @idEmpresa, @nombre, @email, @pass)";
 
                     using (SqlCommand cmd = new SqlCommand(query, con))
                     {
-                        cmd.Parameters.AddWithValue("@idRol",  datos.IdRol);
-                        cmd.Parameters.AddWithValue("@idArea", datos.IdArea);
-                        cmd.Parameters.AddWithValue("@nombre", datos.NombreCompleto);
-                        cmd.Parameters.AddWithValue("@email",  datos.Email);
-                        cmd.Parameters.AddWithValue("@pass",   passwordEncriptada);
+                        cmd.Parameters.AddWithValue("@idRol",    datos.IdRol);
+                        cmd.Parameters.AddWithValue("@idArea",   datos.IdArea);
+                        cmd.Parameters.AddWithValue("@idEmpresa", idEmpresa);
+                        cmd.Parameters.AddWithValue("@nombre",   datos.NombreCompleto);
+                        cmd.Parameters.AddWithValue("@email",    datos.Email);
+                        cmd.Parameters.AddWithValue("@pass",     passwordEncriptada);
                         cmd.ExecuteNonQuery();
                     }
                 }
@@ -193,10 +214,13 @@ namespace QualityDocAPI.Controllers
                             u.nombre_completo,
                             u.password_hash,
                             u.id_area,
+                            u.id_empresa,
                             ISNULL(a.es_general, 0)      AS es_area_general,
-                            ISNULL(a.nombre, 'Sin Área') AS nombre_area
+                            ISNULL(a.nombre, 'Sin Área') AS nombre_area,
+                            ISNULL(e.nombre, '')         AS nombre_empresa
                         FROM Usuarios u
-                        LEFT JOIN Areas a ON u.id_area = a.id_area
+                        LEFT JOIN Areas    a ON u.id_area    = a.id_area
+                        LEFT JOIN Empresas e ON u.id_empresa = e.id_empresa
                         WHERE u.email = @email AND u.activo = 1";
 
                     using (SqlCommand cmd = new SqlCommand(query, con))
@@ -208,13 +232,15 @@ namespace QualityDocAPI.Controllers
                             {
                                 usuarioEncontrado = new UsuarioSQL
                                 {
-                                    IdUsuario      = (int)rd["id_usuario"],
-                                    IdRol          = (int)rd["id_rol"],
+                                    IdUsuario     = (int)rd["id_usuario"],
+                                    IdRol         = (int)rd["id_rol"],
                                     NombreCompleto = rd["nombre_completo"].ToString()!,
-                                    PasswordHash   = rd["password_hash"].ToString()!,
-                                    IdArea         = rd["id_area"] == DBNull.Value ? null : (int?)rd["id_area"],
-                                    EsAreaGeneral  = (bool)rd["es_area_general"],
-                                    NombreArea     = rd["nombre_area"].ToString()!
+                                    PasswordHash  = rd["password_hash"].ToString()!,
+                                    IdArea        = rd["id_area"]    == DBNull.Value ? null : (int?)rd["id_area"],
+                                    IdEmpresa     = rd["id_empresa"] == DBNull.Value ? null : (int?)rd["id_empresa"],
+                                    EsAreaGeneral = (bool)rd["es_area_general"],
+                                    NombreArea    = rd["nombre_area"].ToString()!,
+                                    NombreEmpresa = rd["nombre_empresa"].ToString()!
                                 };
                             }
                         }
@@ -236,6 +262,8 @@ namespace QualityDocAPI.Controllers
                     rol       = usuarioEncontrado.IdRol,
                     area      = usuarioEncontrado.NombreArea,
                     esGeneral = usuarioEncontrado.EsAreaGeneral,
+                    empresa   = usuarioEncontrado.NombreEmpresa,
+                    idEmpresa = usuarioEncontrado.IdEmpresa,
                     token     = tokenGenerado
                 });
             }
@@ -254,9 +282,11 @@ namespace QualityDocAPI.Controllers
                 new Claim(ClaimTypes.Name,           usuario.NombreCompleto),
                 new Claim("idRol",                   usuario.IdRol.ToString()),
                 new Claim(ClaimTypes.Role,           usuario.IdRol.ToString()),
-                new Claim("id_area",                 usuario.IdArea?.ToString() ?? "0"),
+                new Claim("id_area",                 usuario.IdArea?.ToString()     ?? "0"),
                 new Claim("es_area_general",         usuario.EsAreaGeneral.ToString().ToLower()),
-                new Claim("nombre_area",             usuario.NombreArea)
+                new Claim("nombre_area",             usuario.NombreArea),
+                new Claim("id_empresa",              usuario.IdEmpresa?.ToString()  ?? "0"),
+                new Claim("nombre_empresa",          usuario.NombreEmpresa)
             };
 
             var key   = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_config["Jwt:Key"]!));

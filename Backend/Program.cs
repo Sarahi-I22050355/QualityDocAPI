@@ -8,30 +8,29 @@ using Microsoft.OpenApi.Models;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Agrega los controladores
 builder.Services.AddControllers();
 
-// --- 1. CONFIGURAR SQL SERVER ---
+// --- 1. SQL SERVER ---
 var sqlConnectionString = builder.Configuration.GetConnectionString("SqlConexion");
 builder.Services.AddDbContext<SqlContext>(options =>
     options.UseSqlServer(sqlConnectionString));
 
-// --- 2. CONFIGURAR MONGODB ---
+// --- 2. MONGODB ---
 var mongoConnectionString = builder.Configuration.GetConnectionString("MongoConexion");
 builder.Services.AddSingleton<IMongoClient>(new MongoClient(mongoConnectionString));
 
-// --- 3. CONFIGURAR SWAGGER CON BOTÓN DE SEGURIDAD ---
+// --- 3. SWAGGER ---
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
     c.SwaggerDoc("v1", new OpenApiInfo { Title = "QualityDoc API", Version = "v1" });
     c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
     {
-        Name = "Authorization",
-        Type = SecuritySchemeType.ApiKey,
-        Scheme = "Bearer",
+        Name        = "Authorization",
+        Type        = SecuritySchemeType.ApiKey,
+        Scheme      = "Bearer",
         BearerFormat = "JWT",
-        In = ParameterLocation.Header,
+        In          = ParameterLocation.Header,
         Description = "Escribe 'Bearer' [espacio] y luego tu token."
     });
     c.AddSecurityRequirement(new OpenApiSecurityRequirement
@@ -46,7 +45,7 @@ builder.Services.AddSwaggerGen(c =>
     });
 });
 
-// --- 4. CONFIGURAR CORS ---
+// --- 4. CORS ---
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("PaseVIP", policy =>
@@ -57,30 +56,31 @@ builder.Services.AddCors(options =>
     });
 });
 
-// --- 5. CONFIGURACIÓN DEL GUARDIA (AUTENTICACIÓN JWT) ---
-var jwtKey = builder.Configuration["Jwt:Key"];
+// --- 5. JWT ---
+var jwtKey  = builder.Configuration["Jwt:Key"];
 var keyBytes = Encoding.UTF8.GetBytes(jwtKey!);
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
         options.RequireHttpsMetadata = false;
-        options.SaveToken = true;
+        options.SaveToken            = true;
         options.TokenValidationParameters = new TokenValidationParameters
         {
             ValidateIssuerSigningKey = true,
-            IssuerSigningKey = new SymmetricSecurityKey(keyBytes),
-            ValidateIssuer = false,
-            ValidateAudience = false
+            IssuerSigningKey         = new SymmetricSecurityKey(keyBytes),
+            ValidateIssuer           = false,
+            ValidateAudience         = false
         };
     });
 
-// --- 6. DEFINIR REGLAS DE ROLES (AUTORIZACIÓN) ---
+// --- 6. POLÍTICAS DE ROL ---
 builder.Services.AddAuthorization(options =>
 {
     options.AddPolicy("SoloAdmin",    policy => policy.RequireClaim("idRol", "1"));
     options.AddPolicy("SubeYAprueba", policy => policy.RequireClaim("idRol", "1", "2"));
     options.AddPolicy("PuedeRevisar", policy => policy.RequireClaim("idRol", "1", "4"));
+    options.AddPolicy("EsSuperAdmin", policy => policy.RequireClaim("idRol", "5"));
 });
 
 var app = builder.Build();
@@ -91,10 +91,9 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-// --- EL ORDEN DE ESTAS LÍNEAS ES VITAL ---
-app.UseCors("PaseVIP");      // 1. Deja entrar al frontend
-app.UseAuthentication();     // 2. Revisa el gafete (Token)
-app.UseAuthorization();      // 3. Revisa si tienes permiso para esa zona específica
+app.UseCors("PaseVIP");
+app.UseAuthentication();
+app.UseAuthorization();
 
 app.MapControllers();
 app.Run();

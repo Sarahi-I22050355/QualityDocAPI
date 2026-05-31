@@ -3,7 +3,6 @@ using MongoDB.Bson.Serialization.Attributes;
 
 namespace QualityDocAPI.Models
 {
-    // Información del último movimiento del flujo de aprobación
     public class UltimoFlujoMongo
     {
         [BsonElement("decision")]
@@ -46,14 +45,17 @@ namespace QualityDocAPI.Models
         [BsonElement("area")]
         public string Area { get; set; } = string.Empty;
 
-        // ── Campos de auditoría ─────────────────────────────────────
+        // ── Multiempresa ────────────────────────────────────────────
+        [BsonElement("empresa")]
+        public string Empresa { get; set; } = string.Empty;
+
+        // ── Auditoría ───────────────────────────────────────────────
         [BsonElement("subido_por")]
         public string? SubidoPor { get; set; }
 
         [BsonElement("fecha_subida")]
         public DateTime? FechaSubida { get; set; }
 
-        // Último movimiento del flujo (Pendiente / Aprobado / Rechazado)
         [BsonElement("ultimo_flujo")]
         public UltimoFlujoMongo? UltimoFlujo { get; set; }
     }

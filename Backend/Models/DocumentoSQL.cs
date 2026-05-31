@@ -19,9 +19,11 @@ namespace QualityDocAPI.Models
         [Column("id_estado")]
         public int IdEstado { get; set; }
 
-        // Área a la que pertenece el documento. Se hereda del usuario que lo sube.
         [Column("id_area")]
         public int? IdArea { get; set; }
+
+        [Column("id_empresa")]
+        public int IdEmpresa { get; set; }
 
         [Column("titulo")]
         public string Titulo { get; set; } = string.Empty;

@@ -18,17 +18,25 @@ namespace QualityDocAPI.Controllers
             _sqlContext = sqlContext;
         }
 
+        // ── Helpers ──────────────────────────────────────────────────────
+        private int? GetIdEmpresaToken()
+        {
+            var val = User.FindFirst("id_empresa")?.Value;
+            return int.TryParse(val, out int e) && e != 0 ? e : (int?)null;
+        }
+
         // ─────────────────────────────────────────────────────────────────
-        // GET: api/Areas
-        // Lista todas las áreas ACTIVAS del sistema.
+        // GET: api/Areas — lista áreas ACTIVAS de la empresa del admin
         // ─────────────────────────────────────────────────────────────────
         [HttpGet]
         public IActionResult ObtenerAreas()
         {
             try
             {
+                var idEmpresa = GetIdEmpresaToken();
+
                 var areas = _sqlContext.Areas
-                    .Where(a => a.Activo)
+                    .Where(a => a.Activo && a.IdEmpresa == idEmpresa)
                     .OrderBy(a => a.Nombre)
                     .Select(a => new
                     {
@@ -50,16 +58,16 @@ namespace QualityDocAPI.Controllers
 
         // ─────────────────────────────────────────────────────────────────
         // GET: api/Areas/inactivas
-        // Lista todas las áreas INACTIVAS (desactivadas).
-        // Permite al Admin ver qué áreas puede reactivar.
         // ─────────────────────────────────────────────────────────────────
         [HttpGet("inactivas")]
         public IActionResult ObtenerAreasInactivas()
         {
             try
             {
+                var idEmpresa = GetIdEmpresaToken();
+
                 var areas = _sqlContext.Areas
-                    .Where(a => !a.Activo)
+                    .Where(a => !a.Activo && a.IdEmpresa == idEmpresa)
                     .OrderBy(a => a.Nombre)
                     .Select(a => new
                     {
@@ -80,29 +88,28 @@ namespace QualityDocAPI.Controllers
         }
 
         // ─────────────────────────────────────────────────────────────────
-        // POST: api/Areas
-        // Crear una nueva área.
-        // Verifica que no exista otra área activa con el mismo nombre.
-        // Si existía una inactiva con el mismo nombre, sugiere reactivarla.
+        // POST: api/Areas — crear área dentro de la empresa del admin
         // ─────────────────────────────────────────────────────────────────
         [HttpPost]
         public async Task<IActionResult> CrearArea([FromBody] CrearAreaDTO datos)
         {
             try
             {
-                // Verificar duplicado entre áreas activas
+                var idEmpresa = GetIdEmpresaToken();
+                if (idEmpresa == null)
+                    return BadRequest(new { Mensaje = "No se pudo determinar la empresa." });
+
                 bool existeActiva = _sqlContext.Areas
-                    .Any(a => a.Nombre == datos.Nombre && a.Activo);
+                    .Any(a => a.Nombre == datos.Nombre && a.Activo && a.IdEmpresa == idEmpresa);
                 if (existeActiva)
                     return BadRequest(new { Mensaje = $"Ya existe un área activa con el nombre '{datos.Nombre}'." });
 
-                // Si existe una inactiva con el mismo nombre, sugerir reactivarla
                 var inactivaExistente = _sqlContext.Areas
-                    .FirstOrDefault(a => a.Nombre == datos.Nombre && !a.Activo);
+                    .FirstOrDefault(a => a.Nombre == datos.Nombre && !a.Activo && a.IdEmpresa == idEmpresa);
                 if (inactivaExistente != null)
                     return BadRequest(new
                     {
-                        Mensaje     = $"Existe un área inactiva con el nombre '{datos.Nombre}'. Puedes reactivarla en PUT /api/Areas/{inactivaExistente.Id}/reactivar.",
+                        Mensaje        = $"Existe un área inactiva con el nombre '{datos.Nombre}'. Puedes reactivarla.",
                         IdAreaInactiva = inactivaExistente.Id
                     });
 
@@ -111,7 +118,8 @@ namespace QualityDocAPI.Controllers
                     Nombre      = datos.Nombre,
                     Descripcion = datos.Descripcion,
                     EsGeneral   = datos.EsGeneral,
-                    Activo      = true
+                    Activo      = true,
+                    IdEmpresa   = idEmpresa.Value
                 };
 
                 _sqlContext.Areas.Add(nuevaArea);
@@ -133,19 +141,20 @@ namespace QualityDocAPI.Controllers
 
         // ─────────────────────────────────────────────────────────────────
         // PUT: api/Areas/{id}
-        // Editar nombre y descripción de un área activa.
         // ─────────────────────────────────────────────────────────────────
         [HttpPut("{id}")]
         public async Task<IActionResult> ActualizarArea(int id, [FromBody] CrearAreaDTO datos)
         {
             try
             {
+                var idEmpresa = GetIdEmpresaToken();
+
                 var area = await _sqlContext.Areas.FindAsync(id);
-                if (area == null || !area.Activo)
-                    return NotFound(new { Mensaje = "Área no encontrada o está inactiva." });
+                if (area == null || !area.Activo || area.IdEmpresa != idEmpresa)
+                    return NotFound(new { Mensaje = "Área no encontrada." });
 
                 bool nombreDuplicado = _sqlContext.Areas
-                    .Any(a => a.Nombre == datos.Nombre && a.Id != id && a.Activo);
+                    .Any(a => a.Nombre == datos.Nombre && a.Id != id && a.Activo && a.IdEmpresa == idEmpresa);
                 if (nombreDuplicado)
                     return BadRequest(new { Mensaje = $"Ya existe otra área con el nombre '{datos.Nombre}'." });
 
@@ -165,34 +174,25 @@ namespace QualityDocAPI.Controllers
 
         // ─────────────────────────────────────────────────────────────────
         // PUT: api/Areas/{id}/reactivar
-        // Reactiva un área que fue desactivada anteriormente.
-        //
-        // Reglas:
-        //   - El área debe existir y estar inactiva.
-        //   - No puede haber otra área ACTIVA con el mismo nombre
-        //     (por si se creó una nueva mientras estaba inactiva).
         // ─────────────────────────────────────────────────────────────────
         [HttpPut("{id}/reactivar")]
         public async Task<IActionResult> ReactivarArea(int id)
         {
             try
             {
-                var area = await _sqlContext.Areas.FindAsync(id);
+                var idEmpresa = GetIdEmpresaToken();
 
-                if (area == null)
-                    return NotFound(new { Mensaje = $"No existe un área con ID {id}." });
+                var area = await _sqlContext.Areas.FindAsync(id);
+                if (area == null || area.IdEmpresa != idEmpresa)
+                    return NotFound(new { Mensaje = $"No existe un área con ID {id} en tu empresa." });
 
                 if (area.Activo)
                     return BadRequest(new { Mensaje = $"El área '{area.Nombre}' ya está activa." });
 
-                // Verificar que no haya otra área activa con el mismo nombre
                 bool nombreEnUso = _sqlContext.Areas
-                    .Any(a => a.Nombre == area.Nombre && a.Activo && a.Id != id);
+                    .Any(a => a.Nombre == area.Nombre && a.Activo && a.Id != id && a.IdEmpresa == idEmpresa);
                 if (nombreEnUso)
-                    return BadRequest(new
-                    {
-                        Mensaje = $"No se puede reactivar '{area.Nombre}' porque ya existe otra área activa con ese nombre."
-                    });
+                    return BadRequest(new { Mensaje = $"No se puede reactivar: ya existe otra área activa con ese nombre." });
 
                 area.Activo = true;
                 await _sqlContext.SaveChangesAsync();
@@ -212,20 +212,17 @@ namespace QualityDocAPI.Controllers
         }
 
         // ─────────────────────────────────────────────────────────────────
-        // DELETE: api/Areas/{id}
-        // Desactiva un área (soft delete — no se borra físicamente).
-        //
-        // Reglas:
-        //   - No se puede desactivar el área General del sistema.
-        //   - Los usuarios asignados conservan su registro histórico.
+        // DELETE: api/Areas/{id} — soft delete
         // ─────────────────────────────────────────────────────────────────
         [HttpDelete("{id}")]
         public async Task<IActionResult> DesactivarArea(int id)
         {
             try
             {
+                var idEmpresa = GetIdEmpresaToken();
+
                 var area = await _sqlContext.Areas.FindAsync(id);
-                if (area == null || !area.Activo)
+                if (area == null || !area.Activo || area.IdEmpresa != idEmpresa)
                     return NotFound(new { Mensaje = "Área no encontrada." });
 
                 if (area.EsGeneral)
@@ -234,10 +231,7 @@ namespace QualityDocAPI.Controllers
                 area.Activo = false;
                 await _sqlContext.SaveChangesAsync();
 
-                return Ok(new
-                {
-                    Mensaje = $"Área '{area.Nombre}' desactivada. Puedes reactivarla en PUT /api/Areas/{area.Id}/reactivar."
-                });
+                return Ok(new { Mensaje = $"Área '{area.Nombre}' desactivada." });
             }
             catch (Exception ex)
             {
