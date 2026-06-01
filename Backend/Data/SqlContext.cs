@@ -13,5 +13,6 @@ namespace QualityDocAPI.Data
         public DbSet<FlujoAprobacionSQL>  FlujoAprobacion    { get; set; }
         public DbSet<VersionDocumentoSQL> VersionesDocumento { get; set; }
         public DbSet<EmpresaSQL>          Empresas           { get; set; }
+        public DbSet<CategoriaSQL>        Categorias         { get; set; }
     }
 }

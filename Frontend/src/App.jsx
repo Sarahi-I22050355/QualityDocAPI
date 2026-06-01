@@ -5,6 +5,7 @@ import DashboardAdmin from "./pages/DashboardAdmin";
 import DashboardSupervisor from "./pages/DashboardSupervisor";
 import DashboardOperario from "./pages/DashboardOperario";
 import DashboardRevisor from "./pages/revisor/DashboardRevisor";
+import DashboardSuperAdmin from "./pages/superadmin/DashboardSuperAdmin"; // ← LÍNEA NUEVA
 
 // Ruta protegida que verifica el rol
 function RutaProtegida({ children, rol }) {
@@ -28,6 +29,7 @@ function RedirigirPorRol() {
   if (rolNum === 2) return <Navigate to="/supervisor" replace />;
   if (rolNum === 3) return <Navigate to="/operario" replace />;
   if (rolNum === 4) return <Navigate to="/revisor" replace />;
+  if (rolNum === 5) return <Navigate to="/superadmin" replace />; // ← LÍNEA NUEVA
 
   return <Navigate to="/login" replace />;
 }
@@ -61,12 +63,21 @@ export default function App() {
             </RutaProtegida>
           } />
 
-          {/* Revisor — nuevo */}
+          {/* Revisor */}
           <Route path="/revisor/*" element={
             <RutaProtegida rol={4}>
               <DashboardRevisor />
             </RutaProtegida>
           } />
+
+          {/* ── BLOQUE NUEVO ──────────────────────────────────────── */}
+          {/* SuperAdmin */}
+          <Route path="/superadmin/*" element={
+            <RutaProtegida rol={5}>
+              <DashboardSuperAdmin />
+            </RutaProtegida>
+          } />
+          {/* ──────────────────────────────────────────────────────── */}
 
           {/* Fallback */}
           <Route path="*" element={<Navigate to="/login" replace />} />

@@ -37,8 +37,9 @@ export default function Login() {
       else if (rol === 2) navigate('/supervisor')
       else if (rol === 3) navigate('/operario')
       else if (rol === 4) navigate('/revisor')
+      else if (rol === 5) navigate('/superadmin')   // ← agregar esta línea
       else navigate('/login')
-
+      
     } catch (err) {
       const mensaje = err.response?.data?.mensaje || 'Error al conectar con el servidor.'
       setError(mensaje)

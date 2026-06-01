@@ -196,30 +196,11 @@ namespace QualityDocAPI.Controllers
                     clientTxt.Disconnect();
                 }
 
-                string nombreCategoriaMongo = datosDePantalla.IdCategoria switch
-                {
-                    1  => "Manual de Calidad",
-                    2  => "Procedimiento",
-                    3  => "Instrucción de Trabajo",
-                    4  => "Registro de Calidad",
-                    5  => "Plan de Control",
-                    6  => "Auditoría",
-                    7  => "Especificación Técnica",
-                    8  => "Formato",
-                    9  => "Política",
-                    10 => "Manual Operativo",
-                    11 => "Orden de Producción",
-                    12 => "Hoja de Proceso",
-                    13 => "Control de Producción",
-                    14 => "Mantenimiento",
-                    15 => "Seguridad e Higiene",
-                    16 => "Capacitación",
-                    17 => "Inspección de Calidad",
-                    18 => "No Conformidad",
-                    19 => "Acción Correctiva",
-                    _  => "Categoría General"
-                };
-
+                string nombreCategoriaMongo = _sqlContext.Categorias
+                    .Where(c => c.Id == datosDePantalla.IdCategoria && c.Activo)
+                    .Select(c => c.Nombre)
+                    .FirstOrDefault() ?? "Categoría General";
+                    
                 var documentoSQL = new DocumentoSQL
                 {
                     Titulo        = datosDePantalla.Titulo,
