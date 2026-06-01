@@ -20,8 +20,6 @@ export function AuthProvider({ children }) {
   }, []);
 
   const login = (data) => {
-    // Acepta el objeto completo { mensaje, usuario, rol, token, ... }
-    // o solo el string del token
     const token = data.token || data;
     localStorage.setItem("token", token);
     const payload = JSON.parse(atob(token.split(".")[1]));
@@ -34,13 +32,24 @@ export function AuthProvider({ children }) {
   };
 
   // ── Helpers de rol ──────────────────────────────────────────────
-  const esAdmin      = () => usuario?.idRol === 1 || usuario?.idRol === "1";
-  const esSupervisor = () => usuario?.idRol === 2 || usuario?.idRol === "2";
-  const esOperario   = () => usuario?.idRol === 3 || usuario?.idRol === "3";
-  const esRevisor    = () => usuario?.idRol === 4 || usuario?.idRol === "4";
+  const esAdmin      = () => usuario?.idRol === 1  || usuario?.idRol === "1";
+  const esSupervisor = () => usuario?.idRol === 2  || usuario?.idRol === "2";
+  const esOperario   = () => usuario?.idRol === 3  || usuario?.idRol === "3";
+  const esRevisor    = () => usuario?.idRol === 4  || usuario?.idRol === "4";
+  const esSuperAdmin = () => usuario?.idRol === 5  || usuario?.idRol === "5"; // ← NUEVO
 
   return (
-    <AuthContext.Provider value={{ usuario, login, logout, cargando, esAdmin, esSupervisor, esOperario, esRevisor }}>
+    <AuthContext.Provider value={{
+      usuario,
+      login,
+      logout,
+      cargando,
+      esAdmin,
+      esSupervisor,
+      esOperario,
+      esRevisor,
+      esSuperAdmin,   // ← NUEVO
+    }}>
       {children}
     </AuthContext.Provider>
   );

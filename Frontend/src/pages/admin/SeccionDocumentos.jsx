@@ -3,7 +3,7 @@ import api from '../../api/axios'
 import '../../components/Seccion.css'
 import EditorTexto from '../../components/EditorTexto'
 import { useAuth } from '../../context/AuthContext'
-import { CATEGORIAS } from '../../utils/categorias'
+import { useCategorias } from '../../hooks/useCategorias'
 
 export default function SeccionDocumentos() {
   const { usuario } = useAuth()
@@ -53,8 +53,8 @@ export default function SeccionDocumentos() {
   const [subiendoVer, setSubVer]      = useState(false)
   const [errorNV, setErrorNV]         = useState('')
 
-  const categorias = CATEGORIAS
-
+  const categorias = useCategorias()
+  
   // ── Buscar ────────────────────────────────────────────────────────
   const handleBuscar = async (e) => {
     e.preventDefault()

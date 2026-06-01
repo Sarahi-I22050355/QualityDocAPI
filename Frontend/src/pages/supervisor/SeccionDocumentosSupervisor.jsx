@@ -2,7 +2,8 @@ import { useState } from 'react'
 import api from '../../api/axios'
 import '../../components/Seccion.css'
 import EditorTexto from '../../components/EditorTexto'
-import { CATEGORIAS } from '../../utils/categorias'
+import { useCategorias } from '../../hooks/useCategorias'
+
 
 export default function SeccionDocumentosSupervisor() {
   const [busqueda, setBusqueda]     = useState('')
@@ -43,7 +44,7 @@ export default function SeccionDocumentosSupervisor() {
   const [errorVer, setErrorVer]           = useState('')
   const [okVer, setOkVer]                 = useState('')
 
-  const categorias = CATEGORIAS
+  const categorias = useCategorias()
 
   const esDocGeneral = (r) => {
     const area = r.documento?.area ?? r.area ?? ''
