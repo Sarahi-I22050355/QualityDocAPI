@@ -5,67 +5,92 @@ import EditorTexto from '../../components/EditorTexto'
 import { useAuth } from '../../context/AuthContext'
 import { useCategorias } from '../../hooks/useCategorias'
 
+// ── Barra de progreso de firmas ───────────────────────────────────
+function BarraFirmas({ requeridas, obtenidas }) {
+  if (!requeridas || requeridas === 0) return null
+  const pct = Math.round((obtenidas / requeridas) * 100)
+  return (
+    <div style={{ marginTop: '4px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem', color: '#6b7280', marginBottom: '3px' }}>
+        <span>Firmas</span>
+        <span style={{ fontWeight: 600, color: obtenidas === requeridas ? '#4ade80' : '#fbbf24' }}>
+          {obtenidas} / {requeridas}
+        </span>
+      </div>
+      <div style={{ height: '4px', background: '#2a3347', borderRadius: '99px', overflow: 'hidden' }}>
+        <div style={{ height: '4px', width: `${pct}%`, background: obtenidas === requeridas ? '#4ade80' : '#fbbf24', borderRadius: '99px', transition: 'width 0.3s' }} />
+      </div>
+    </div>
+  )
+}
+
 export default function SeccionDocumentos() {
   const { usuario } = useAuth()
 
-  const [busqueda, setBusqueda]       = useState('')
-  const [resultados, setResultados]   = useState([])
-  const [buscando, setBuscando]       = useState(false)
-  const [errorBusq, setErrorBusq]     = useState('')
-  const [buscadoYa, setBuscadoYa]     = useState(false)
+  const [busqueda, setBusqueda]     = useState('')
+  const [resultados, setResultados] = useState([])
+  const [buscando, setBuscando]     = useState(false)
+  const [errorBusq, setErrorBusq]   = useState('')
+  const [buscadoYa, setBuscadoYa]   = useState(false)
+  // versiones por documento: { [sqlId]: { cargando, data } }
+  const [versionesMap, setVersionesMap] = useState({})
 
-  // Subir documento
-  const [modalSubir, setModalSubir]   = useState(false)
-  const [areas, setAreas]             = useState([])
-  const [formDoc, setFormDoc]         = useState({
-    Titulo: '', IdCategoria: 1, IdArea: '', ContenidoTexto: ''
-  })
-  const [archivo, setArchivo]         = useState(null)
+  const [modalSubir, setModalSubir] = useState(false)
+  const [areas, setAreas]           = useState([])
+  const [formDoc, setFormDoc]       = useState({ Titulo: '', IdCategoria: 1, IdArea: '', ContenidoTexto: '' })
+  const [archivo, setArchivo]       = useState(null)
   const [etiquetasInput, setEtiquetasInput] = useState('')
   const [subiendoDoc, setSubiendoDoc] = useState(false)
-  const [errorSubir, setErrorSubir]   = useState('')
-  const [okSubir, setOkSubir]         = useState('')
+  const [errorSubir, setErrorSubir] = useState('')
+  const [okSubir, setOkSubir]       = useState('')
 
-  // Flujo de aprobación
-  const [modalFlujo, setModalFlujo]   = useState(false)
-  const [docSel, setDocSel]           = useState(null)
-  const [flujoData, setFlujoData]     = useState(null)
-  const [cargFlujo, setCargFlujo]     = useState(false)
-  const [errorFlujo, setErrorFlujo]   = useState('')
-  const [okFlujo, setOkFlujo]         = useState('')
-  const [modalRes, setModalRes]       = useState(false)
-  const [idFlujoRes, setIdFlujoRes]   = useState(null)
-  const [formRes, setFormRes]         = useState({ Decision: 'Aprobado', Comentarios: '' })
-  const [resolviendoF, setResF]       = useState(false)
+  const [modalFlujo, setModalFlujo] = useState(false)
+  const [docSel, setDocSel]         = useState(null)
+  const [flujoData, setFlujoData]   = useState(null)
+  const [cargFlujo, setCargFlujo]   = useState(false)
+  const [errorFlujo, setErrorFlujo] = useState('')
+  const [okFlujo, setOkFlujo]       = useState('')
+  const [modalRes, setModalRes]     = useState(false)
+  const [idFlujoRes, setIdFlujoRes] = useState(null)
+  const [formRes, setFormRes]       = useState({ Decision: 'Aprobado', Comentarios: '' })
+  const [resolviendoF, setResF]     = useState(false)
 
-  // Versiones
-  const [modalVersiones, setModalVer] = useState(false)
-  const [docSelVer, setDocSelVer]     = useState(null)
-  const [versionesData, setVerData]   = useState(null)
-  const [cargVer, setCargVer]         = useState(false)
-  const [errorVer, setErrorVer]       = useState('')
-  const [okVer, setOkVer]             = useState('')
-
-  // Nueva versión
+  // Nueva versión — modal inline
   const [modalNuevaVer, setModalNV]   = useState(false)
+  const [docSelVer, setDocSelVer]     = useState(null)
   const [formVer, setFormVer]         = useState({ ComentarioCambio: '', ContenidoTexto: '' })
   const [archivoVer, setArchivoVer]   = useState(null)
   const [subiendoVer, setSubVer]      = useState(false)
   const [errorNV, setErrorNV]         = useState('')
+  const [okNV, setOkNV]               = useState('')
 
   const categorias = useCategorias()
-  
-  // ── Buscar ────────────────────────────────────────────────────────
+
+  // ── Buscar + cargar versiones de cada resultado ───────────────
   const handleBuscar = async (e) => {
     e.preventDefault()
     if (!busqueda.trim()) return
     setBuscando(true)
     setErrorBusq('')
     setResultados([])
+    setVersionesMap({})
     setBuscadoYa(true)
     try {
       const r = await api.get(`/Documentos/buscar/${encodeURIComponent(busqueda)}`)
-      setResultados(r.data.resultados || [])
+      const docs = r.data.resultados || []
+      setResultados(docs)
+      // Cargar versiones de cada documento en paralelo
+      docs.forEach(async (item) => {
+        const idDoc = item.documento?.sqlId ?? item.sqlId
+        if (!idDoc) return
+        setVersionesMap(prev => ({ ...prev, [idDoc]: { cargando: true, data: null } }))
+        try {
+          const vr = await api.get(`/Documentos/${idDoc}/versiones`)
+          setVersionesMap(prev => ({ ...prev, [idDoc]: { cargando: false, data: vr.data } }))
+        } catch {
+          setVersionesMap(prev => ({ ...prev, [idDoc]: { cargando: false, data: null } }))
+        }
+      })
     } catch (e) {
       setErrorBusq(e.response?.data?.Mensaje || 'No se encontraron resultados.')
     } finally {
@@ -73,40 +98,23 @@ export default function SeccionDocumentos() {
     }
   }
 
-  // ── Descargar versión actual ──────────────────────────────────────
-  const handleDescargar = async (idDoc, titulo) => {
+  const handleDescargar = async (idDoc, titulo, version) => {
     try {
-      const r = await api.get(`/Documentos/descargar/${idDoc}`, { responseType: 'blob' })
-      const url  = window.URL.createObjectURL(new Blob([r.data], { type: 'application/pdf' }))
-      const link = document.createElement('a')
-      link.href = url
-      link.download = `${titulo || 'documento'}.pdf`
+      const url = version
+        ? `/Documentos/${idDoc}/versiones/${version}/descargar`
+        : `/Documentos/descargar/${idDoc}`
+      const r = await api.get(url, { responseType: 'blob' })
+      const blobUrl = window.URL.createObjectURL(new Blob([r.data], { type: 'application/pdf' }))
+      const link    = document.createElement('a')
+      link.href     = blobUrl
+      link.download = version ? `v${version}_${titulo || 'documento'}.pdf` : `${titulo || 'documento'}.pdf`
       link.click()
-      window.URL.revokeObjectURL(url)
+      window.URL.revokeObjectURL(blobUrl)
     } catch {
       alert('Error al descargar el documento.')
     }
   }
 
-  // ── Descargar versión específica del historial ────────────────────
-  const handleDescargarVersion = async (idDoc, numeroVersion, tituloDoc) => {
-    try {
-      const r = await api.get(
-        `/Documentos/${idDoc}/versiones/${numeroVersion}/descargar`,
-        { responseType: 'blob' }
-      )
-      const url  = window.URL.createObjectURL(new Blob([r.data], { type: 'application/pdf' }))
-      const link = document.createElement('a')
-      link.href = url
-      link.download = `v${numeroVersion}_${tituloDoc || 'documento'}.pdf`
-      link.click()
-      window.URL.revokeObjectURL(url)
-    } catch (e) {
-      alert(e.response?.data?.Mensaje || `Error al descargar la versión ${numeroVersion}.`)
-    }
-  }
-
-  // ── Subir documento ───────────────────────────────────────────────
   const abrirModalSubir = async () => {
     try {
       const r = await api.get('/Areas')
@@ -124,29 +132,22 @@ export default function SeccionDocumentos() {
     e.preventDefault()
     setSubiendoDoc(true)
     setErrorSubir('')
-
-    const tieneArchivo  = !!archivo
-    const tieneContenido = formDoc.ContenidoTexto &&
-      formDoc.ContenidoTexto.replace(/<[^>]*>/g, '').trim() !== ''
-
+    const tieneArchivo   = !!archivo
+    const tieneContenido = formDoc.ContenidoTexto && formDoc.ContenidoTexto.replace(/<[^>]*>/g, '').trim() !== ''
     if (!tieneArchivo && !tieneContenido) {
       setErrorSubir('Debes adjuntar un archivo PDF o escribir el contenido del documento.')
       setSubiendoDoc(false)
       return
     }
-
     try {
       const fd = new FormData()
       fd.append('Titulo',      formDoc.Titulo)
       fd.append('IdCategoria', formDoc.IdCategoria)
-      if (formDoc.IdArea)              fd.append('IdArea',        formDoc.IdArea)
-      if (archivo)                     fd.append('Archivo',       archivo)
+      if (formDoc.IdArea)              fd.append('IdArea',         formDoc.IdArea)
+      if (archivo)                     fd.append('Archivo',        archivo)
       else if (formDoc.ContenidoTexto) fd.append('ContenidoTexto', formDoc.ContenidoTexto)
-
-      // Etiquetas
       const etiquetas = etiquetasInput.split(',').map(e => e.trim()).filter(Boolean)
       etiquetas.forEach(tag => fd.append('Etiquetas', tag))
-
       await api.post('/Documentos', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
       setOkSubir('Documento subido correctamente.')
       setTimeout(() => { setModalSubir(false); setOkSubir('') }, 2000)
@@ -157,11 +158,10 @@ export default function SeccionDocumentos() {
     }
   }
 
-  // ── Flujo de aprobación ───────────────────────────────────────────
   const handleSolicitar = async (idDoc) => {
     try {
-      await api.put(`/Documentos/solicitar-aprobacion/${idDoc}`)
-      alert('Solicitud de revisión creada correctamente.')
+      const res = await api.put(`/Documentos/solicitar-aprobacion/${idDoc}`)
+      alert(res.data?.Mensaje || 'Solicitud de revisión creada correctamente.')
     } catch (e) {
       alert(e.response?.data?.Mensaje || 'Error al solicitar aprobación.')
     }
@@ -196,12 +196,12 @@ export default function SeccionDocumentos() {
     setResF(true)
     setErrorFlujo('')
     try {
-      await api.put(`/Documentos/resolver-aprobacion/${idFlujoRes}`, formRes)
-      setOkFlujo(`Documento ${formRes.Decision.toLowerCase()} correctamente.`)
+      const res = await api.put(`/Documentos/resolver-aprobacion/${idFlujoRes}`, formRes)
+      setOkFlujo(res.data?.Mensaje || 'Decisión registrada correctamente.')
       setModalRes(false)
       const idDoc = docSel?.documento?.sqlId ?? docSel?.sqlId
-      const res = await api.get(`/Documentos/${idDoc}/flujo`)
-      setFlujoData(res.data)
+      const r2 = await api.get(`/Documentos/${idDoc}/flujo`)
+      setFlujoData(r2.data)
     } catch (e) {
       setErrorFlujo(e.response?.data?.Mensaje || 'Error al resolver.')
     } finally {
@@ -209,24 +209,15 @@ export default function SeccionDocumentos() {
     }
   }
 
-  // ── Versiones ─────────────────────────────────────────────────────
-  const verVersiones = async (r) => {
+  const abrirNuevaVersion = (r) => {
     const idDoc  = r.documento?.sqlId ?? r.sqlId
     const titulo = r.documento?.titulo ?? r.titulo ?? `Documento #${idDoc}`
     setDocSelVer({ idDoc, titulo })
-    setVerData(null)
-    setErrorVer('')
-    setOkVer('')
-    setModalVer(true)
-    setCargVer(true)
-    try {
-      const res = await api.get(`/Documentos/${idDoc}/versiones`)
-      setVerData(res.data)
-    } catch (e) {
-      setErrorVer(e.response?.data?.Mensaje || 'No se pudo cargar el historial de versiones.')
-    } finally {
-      setCargVer(false)
-    }
+    setFormVer({ ComentarioCambio: '', ContenidoTexto: '' })
+    setArchivoVer(null)
+    setErrorNV('')
+    setOkNV('')
+    setModalNV(true)
   }
 
   const handleSubirVersion = async (e) => {
@@ -241,10 +232,11 @@ export default function SeccionDocumentos() {
       await api.post(`/Documentos/${docSelVer.idDoc}/nueva-version`, fd, {
         headers: { 'Content-Type': 'multipart/form-data' }
       })
-      setOkVer('Nueva versión subida. El documento regresa a Borrador para revisión.')
-      setModalNV(false)
-      const res = await api.get(`/Documentos/${docSelVer.idDoc}/versiones`)
-      setVerData(res.data)
+      setOkNV('Nueva versión subida. El documento regresa a Borrador para revisión.')
+      // Refrescar versiones del documento
+      const vr = await api.get(`/Documentos/${docSelVer.idDoc}/versiones`)
+      setVersionesMap(prev => ({ ...prev, [docSelVer.idDoc]: { cargando: false, data: vr.data } }))
+      setTimeout(() => { setModalNV(false); setOkNV('') }, 2000)
     } catch (e) {
       setErrorNV(e.response?.data?.Mensaje || e.response?.data?.Error || 'Error al subir.')
     } finally {
@@ -252,7 +244,6 @@ export default function SeccionDocumentos() {
     }
   }
 
-  // ── Helpers visuales ─────────────────────────────────────────────
   const badgeEstado = (estado) => {
     if (estado === 'Aprobado') return <span className="badge badge-verde">Aprobado</span>
     if (estado === 'Borrador') return <span className="badge badge-naranja">Borrador</span>
@@ -261,8 +252,7 @@ export default function SeccionDocumentos() {
   }
 
   const formatFecha = (f) => f ? new Date(f).toLocaleString('es-MX', {
-    day: '2-digit', month: '2-digit', year: 'numeric',
-    hour: '2-digit', minute: '2-digit'
+    day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'
   }) : '—'
 
   const formatBytes = (b) => {
@@ -281,16 +271,11 @@ export default function SeccionDocumentos() {
 
       {okSubir && <div className="alerta-ok">{okSubir}</div>}
 
-      {/* Buscador */}
       <form onSubmit={handleBuscar}>
         <div className="filtros-row">
-          <input
-            type="text"
-            placeholder="Buscar por título, descripción, etiqueta o autor..."
-            value={busqueda}
-            onChange={(e) => setBusqueda(e.target.value)}
-            style={{ flex: 1, minWidth: '200px' }}
-          />
+          <input type="text" placeholder="Buscar por título, descripción, etiqueta o autor..."
+            value={busqueda} onChange={(e) => setBusqueda(e.target.value)}
+            style={{ flex: 1, minWidth: '200px' }} />
           <button type="submit" className="btn-primario" disabled={buscando}>
             {buscando ? 'Buscando...' : 'Buscar'}
           </button>
@@ -305,10 +290,10 @@ export default function SeccionDocumentos() {
             <table>
               <thead>
                 <tr>
-                  <th>Título</th>
+                  <th>Título / Versión</th>
                   <th>Área</th>
                   <th>Estado</th>
-                  <th>Ver.</th>
+                  <th>Fecha</th>
                   <th>Acciones</th>
                 </tr>
               </thead>
@@ -316,18 +301,26 @@ export default function SeccionDocumentos() {
                 {resultados.length === 0 ? (
                   <tr><td colSpan={5} className="sin-datos">Sin resultados.</td></tr>
                 ) : resultados.map((r, i) => {
-                  const doc    = r.documento ?? r
-                  const estado = r.estado    ?? '—'
-                  const ver    = r.version   ?? '—'
-                  return (
-                    <tr key={doc.sqlId ?? i}>
+                  const doc     = r.documento ?? r
+                  const estado  = r.estado    ?? '—'
+                  const verActual = r.version ?? '—'
+                  const idDoc   = doc.sqlId ?? i
+                  const verInfo = versionesMap[idDoc]
+                  const versiones = verInfo?.data?.versiones ?? []
+                  const versionesAnteriores = versiones.filter(v => v.numeroVersion !== verActual)
+
+                  return [
+                    // ── Fila principal (versión actual, activa) ─────────────
+                    <tr key={`doc-${idDoc}`}>
                       <td>
-                        <div style={{ fontWeight: 500 }}>{doc.titulo}</div>
-                        <div style={{ fontSize: '0.8rem', color: '#9ca3af' }}>{doc.categoria}</div>
-                        {/* ── Auditoría ── */}
-                        <div style={{ fontSize: '0.75rem', color: '#6b7280', marginTop: '4px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span className="badge badge-morado">v{verActual}</span>
+                          <span style={{ fontWeight: 600 }}>{doc.titulo}</span>
+                          <span style={{ fontSize: '0.72rem', color: '#4ade80', fontWeight: 500 }}>● actual</span>
+                        </div>
+                        <div style={{ fontSize: '0.8rem', color: '#9ca3af', marginTop: '2px' }}>{doc.categoria}</div>
+                        <div style={{ fontSize: '0.75rem', color: '#6b7280', marginTop: '3px' }}>
                           {doc.subidoPor && <span>Subido por: <strong>{doc.subidoPor}</strong></span>}
-                          {doc.fechaSubida && <span> · {formatFecha(doc.fechaSubida)}</span>}
                         </div>
                         {doc.ultimoFlujo && (
                           <div style={{ fontSize: '0.75rem', marginTop: '2px' }}>
@@ -337,13 +330,14 @@ export default function SeccionDocumentos() {
                                           doc.ultimoFlujo.decision === 'Rechazado' ? '#fee2e2' : '#fef9c3',
                               color: doc.ultimoFlujo.decision === 'Aprobado' ? '#166534' :
                                      doc.ultimoFlujo.decision === 'Rechazado' ? '#991b1b' : '#854d0e'
-                            }}>
-                              {doc.ultimoFlujo.decision}
-                            </span>
+                            }}>{doc.ultimoFlujo.decision}</span>
                             {doc.ultimoFlujo.revisadoPor && (
                               <span style={{ color: '#6b7280' }}> · {doc.ultimoFlujo.revisadoPor}</span>
                             )}
                           </div>
+                        )}
+                        {r.firmasReq > 0 && (
+                          <BarraFirmas requeridas={r.firmasReq} obtenidas={r.firmasOk} />
                         )}
                         {doc.etiquetas?.length > 0 && (
                           <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginTop: '4px' }}>
@@ -355,30 +349,65 @@ export default function SeccionDocumentos() {
                             ))}
                           </div>
                         )}
+                        {verInfo?.cargando && (
+                          <div style={{ fontSize: '0.72rem', color: '#6b7280', marginTop: '4px' }}>
+                            Cargando versiones...
+                          </div>
+                        )}
                       </td>
                       <td>{doc.area}</td>
                       <td>{badgeEstado(estado)}</td>
-                      <td>v{ver}</td>
+                      <td style={{ fontSize: '0.8rem', color: '#6b7280', whiteSpace: 'nowrap' }}>
+                        {formatFecha(doc.fechaSubida)}
+                      </td>
                       <td>
                         <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                          <button className="btn-secundario" onClick={() => handleDescargar(doc.sqlId, doc.titulo)}>
+                          <button className="btn-secundario" onClick={() => handleDescargar(idDoc, doc.titulo)}>
                             Descargar
                           </button>
                           {estado === 'Borrador' && (
-                            <button className="btn-exito" onClick={() => handleSolicitar(doc.sqlId)}>
+                            <button className="btn-exito" onClick={() => handleSolicitar(idDoc)}>
                               Solicitar aprobación
                             </button>
                           )}
-                          <button className="btn-secundario" onClick={() => verFlujo(r)}>
-                            Flujo
-                          </button>
-                          <button className="btn-secundario" onClick={() => verVersiones(r)}>
-                            Versiones
+                          <button className="btn-secundario" onClick={() => verFlujo(r)}>Flujo</button>
+                          <button className="btn-secundario" onClick={() => abrirNuevaVersion(r)}>
+                            + Versión
                           </button>
                         </div>
                       </td>
-                    </tr>
-                  )
+                    </tr>,
+
+                    // ── Filas de versiones anteriores (inactivas) ───────────
+                    ...versionesAnteriores.map(v => (
+                      <tr key={`ver-${idDoc}-${v.numeroVersion}`}
+                        style={{ opacity: 0.45, background: 'rgba(0,0,0,0.12)' }}>
+                        <td>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', paddingLeft: '12px' }}>
+                            <span className="badge badge-gris">v{v.numeroVersion}</span>
+                            <span style={{ fontSize: '0.875rem', color: '#9ca3af' }}>{doc.titulo}</span>
+                            <span style={{ fontSize: '0.72rem', color: '#6b7280' }}>● inactiva</span>
+                          </div>
+                          <div style={{ fontSize: '0.75rem', color: '#6b7280', marginTop: '2px', paddingLeft: '12px' }}>
+                            {v.subidoPor && <span>Subido por: {v.subidoPor}</span>}
+                            {v.comentarioCambio && <span> · {v.comentarioCambio}</span>}
+                          </div>
+                        </td>
+                        <td style={{ color: '#6b7280', fontSize: '0.875rem' }}>{doc.area}</td>
+                        <td><span className="badge badge-gris">Inactiva</span></td>
+                        <td style={{ fontSize: '0.8rem', color: '#6b7280', whiteSpace: 'nowrap' }}>
+                          {formatFecha(v.fechaVersion)}
+                        </td>
+                        <td>
+                          <button className="btn-secundario"
+                            style={{ opacity: 0.7 }}
+                            onClick={() => handleDescargar(idDoc, doc.titulo, v.numeroVersion)}>
+                            ⬇ v{v.numeroVersion}
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  ]
                 })}
               </tbody>
             </table>
@@ -387,12 +416,10 @@ export default function SeccionDocumentos() {
       )}
 
       {!buscadoYa && (
-        <div className="card">
-          <p className="sin-datos">Usa el buscador para encontrar documentos.</p>
-        </div>
+        <div className="card"><p className="sin-datos">Usa el buscador para encontrar documentos.</p></div>
       )}
 
-      {/* ── Modal subir documento ───────────────────────────────────── */}
+      {/* ── Modal subir documento ── */}
       {modalSubir && (
         <div className="modal-fondo">
           <div className="modal-card">
@@ -414,8 +441,6 @@ export default function SeccionDocumentos() {
                     ))}
                   </select>
                 </div>
-
-                {/* Selector de área — solo visible para usuarios del área General */}
                 {(usuario?.es_area_general === true || usuario?.es_area_general === 'true' || usuario?.es_area_general === 'True') && (
                   <div className="campo-form">
                     <label>Área de destino</label>
@@ -427,46 +452,36 @@ export default function SeccionDocumentos() {
                       ))}
                     </select>
                     <span style={{ fontSize: '0.75rem', fontStyle: 'italic',
-                      color: formDoc.IdArea ? '#fbbf24' : '#4ade80'
-                    }}>
+                      color: formDoc.IdArea ? '#fbbf24' : '#4ade80' }}>
                       {formDoc.IdArea
-                        ? `📌 Solo visible para el área: ${areas.find(a => String(a.id) === String(formDoc.IdArea))?.nombre || 'seleccionada'}`
+                        ? `📌 Solo visible para: ${areas.find(a => String(a.id) === String(formDoc.IdArea))?.nombre || 'área seleccionada'}`
                         : '🌐 Visible para TODAS las áreas (área General)'}
                     </span>
                   </div>
                 )}
-
-                {/* Etiquetas */}
                 <div className="campo-form">
                   <label>Etiquetas <span style={{ fontWeight: 400, color: '#9ca3af' }}>(separa con comas)</span></label>
-                  <input
-                    value={etiquetasInput}
+                  <input value={etiquetasInput}
                     onChange={(e) => setEtiquetasInput(e.target.value)}
                     placeholder="calidad, iso, manual…" />
                 </div>
-
                 <div className="campo-form" style={{ gridColumn: '1 / -1' }}>
                   <label>Archivo PDF</label>
-                  <input type="file" accept=".pdf"
-                    onChange={(e) => setArchivo(e.target.files[0])} />
+                  <input type="file" accept=".pdf" onChange={(e) => setArchivo(e.target.files[0])} />
                 </div>
                 {!archivo && (
                   <div className="campo-form" style={{ gridColumn: '1 / -1' }}>
                     <label>O escribe el contenido con formato</label>
-                    <EditorTexto
-                      value={formDoc.ContenidoTexto}
+                    <EditorTexto value={formDoc.ContenidoTexto}
                       onChange={(html) => setFormDoc({ ...formDoc, ContenidoTexto: html })}
-                      placeholder="Escribe el contenido del documento aquí. Puedes usar títulos, listas, negritas..."
-                    />
+                      placeholder="Escribe el contenido del documento aquí..." />
                   </div>
                 )}
               </div>
               {errorSubir && <div className="alerta-error" style={{ marginTop: '1rem' }}>{errorSubir}</div>}
               {okSubir    && <div className="alerta-ok"    style={{ marginTop: '1rem' }}>{okSubir}</div>}
               <div className="modal-acciones">
-                <button type="button" className="btn-secundario" onClick={() => setModalSubir(false)}>
-                  Cancelar
-                </button>
+                <button type="button" className="btn-secundario" onClick={() => setModalSubir(false)}>Cancelar</button>
                 <button type="submit" className="btn-primario" disabled={subiendoDoc}>
                   {subiendoDoc ? 'Subiendo...' : 'Subir documento'}
                 </button>
@@ -476,7 +491,7 @@ export default function SeccionDocumentos() {
         </div>
       )}
 
-      {/* ── Modal flujo de aprobación ───────────────────────────────── */}
+      {/* ── Modal flujo ── */}
       {modalFlujo && (
         <div className="modal-fondo" onClick={() => setModalFlujo(false)}>
           <div className="modal-card" style={{ maxWidth: '640px' }} onClick={(e) => e.stopPropagation()}>
@@ -485,12 +500,17 @@ export default function SeccionDocumentos() {
             {okFlujo    && <div className="alerta-ok">{okFlujo}</div>}
             {cargFlujo ? <p className="cargando-txt">Cargando...</p> : flujoData ? (
               <>
-                <div style={{ display: 'flex', gap: '10px', marginBottom: '1rem', flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', gap: '10px', marginBottom: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
                   <span className="badge badge-gris">v{flujoData.version}</span>
                   {flujoData.estadoActual === 'Aprobado' && <span className="badge badge-verde">Aprobado</span>}
                   {flujoData.estadoActual === 'Borrador'  && <span className="badge badge-naranja">Borrador</span>}
                   {flujoData.haySolicitudActiva           && <span className="badge badge-azul">Revisión pendiente</span>}
                 </div>
+                {flujoData.firmasRequeridas > 0 && (
+                  <div style={{ marginBottom: '1rem', padding: '10px 12px', background: 'rgba(79,142,247,0.08)', border: '1px solid rgba(79,142,247,0.2)', borderRadius: '8px' }}>
+                    <BarraFirmas requeridas={flujoData.firmasRequeridas} obtenidas={flujoData.firmasObtenidas} />
+                  </div>
+                )}
                 {flujoData.historial?.length === 0 ? (
                   <p className="sin-datos">Sin historial de aprobación aún.</p>
                 ) : (
@@ -498,10 +518,18 @@ export default function SeccionDocumentos() {
                     {flujoData.historial?.map((h) => (
                       <div key={h.idFlujo} className="card" style={{ marginBottom: 0 }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '6px' }}>
-                          <span><strong>Solicitado por:</strong> {h.nombreSolicitante}</span>
+                          <div>
+                            {h.areaRequerida && (
+                              <span style={{ fontSize: '0.8rem', fontWeight: 600 }}>Área: {h.areaRequerida}</span>
+                            )}
+                            <span style={{ marginLeft: h.areaRequerida ? '8px' : 0, color: '#6b7280', fontSize: '0.8rem' }}>
+                              · Solicitado por: {h.nombreSolicitante}
+                            </span>
+                          </div>
                           {h.decision === 'Pendiente'  && <span className="badge badge-naranja">Pendiente</span>}
                           {h.decision === 'Aprobado'   && <span className="badge badge-verde">Aprobado</span>}
                           {h.decision === 'Rechazado'  && <span className="badge badge-rojo">Rechazado</span>}
+                          {h.decision === 'Cancelado'  && <span className="badge badge-gris">Cancelado</span>}
                         </div>
                         {h.nombreRevisor !== 'Pendiente de revisión' && (
                           <div style={{ fontSize: '0.875rem', color: '#6b7280', marginTop: '4px' }}>
@@ -542,7 +570,7 @@ export default function SeccionDocumentos() {
         </div>
       )}
 
-      {/* ── Modal resolver aprobación ───────────────────────────────── */}
+      {/* ── Modal resolver aprobación ── */}
       {modalRes && (
         <div className="modal-fondo" onClick={() => setModalRes(false)}>
           <div className="modal-card" style={{ maxWidth: '440px' }} onClick={(e) => e.stopPropagation()}>
@@ -566,9 +594,7 @@ export default function SeccionDocumentos() {
                 </div>
               </div>
               <div className="modal-acciones">
-                <button type="button" className="btn-secundario" onClick={() => setModalRes(false)}>
-                  Cancelar
-                </button>
+                <button type="button" className="btn-secundario" onClick={() => setModalRes(false)}>Cancelar</button>
                 <button type="submit"
                   className={formRes.Decision === 'Aprobado' ? 'btn-primario' : 'btn-peligro'}
                   disabled={resolviendoF}>
@@ -580,92 +606,7 @@ export default function SeccionDocumentos() {
         </div>
       )}
 
-      {/* ── Modal versiones ─────────────────────────────────────────── */}
-      {modalVersiones && (
-        <div className="modal-fondo" onClick={() => setModalVer(false)}>
-          <div className="modal-card" style={{ maxWidth: '700px' }} onClick={(e) => e.stopPropagation()}>
-            <h3 className="modal-titulo">Versiones — {docSelVer?.titulo}</h3>
-
-            {errorVer && <div className="alerta-error">{errorVer}</div>}
-            {okVer    && <div className="alerta-ok">{okVer}</div>}
-
-            {cargVer ? <p className="cargando-txt">Cargando...</p> : versionesData ? (
-              <>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '8px' }}>
-                  <div style={{ fontSize: '0.875rem', color: '#6b7280' }}>
-                    Versión actual: <strong>v{versionesData.versionActual}</strong>
-                    {' · '}
-                    {versionesData.estadoActual === 'Aprobado'
-                      ? <span className="badge badge-verde">Aprobado</span>
-                      : <span className="badge badge-naranja">Borrador</span>}
-                  </div>
-                  <button className="btn-primario" onClick={() => {
-                    setFormVer({ ComentarioCambio: '', ContenidoTexto: '' })
-                    setArchivoVer(null)
-                    setErrorNV('')
-                    setModalNV(true)
-                  }}>
-                    + Nueva versión
-                  </button>
-                </div>
-
-                <div className="tabla-wrap">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Versión</th>
-                        <th>Subido por</th>
-                        <th>Fecha</th>
-                        <th>Tamaño</th>
-                        <th>Comentario</th>
-                        <th>Descargar</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {versionesData.versiones?.length === 0 ? (
-                        <tr><td colSpan={6} className="sin-datos">Sin versiones.</td></tr>
-                      ) : versionesData.versiones?.map((v) => (
-                        <tr key={v.idVersion}>
-                          <td>
-                            <span className="badge badge-morado">v{v.numeroVersion}</span>
-                            {v.numeroVersion === versionesData.versionActual && (
-                              <span style={{ marginLeft: '5px', fontSize: '0.75rem', color: '#6b7280' }}>actual</span>
-                            )}
-                          </td>
-                          <td>{v.subidoPor}</td>
-                          <td style={{ whiteSpace: 'nowrap' }}>{formatFecha(v.fechaVersion)}</td>
-                          <td>{formatBytes(v.tamanoBytes)}</td>
-                          <td style={{ fontSize: '0.8125rem', color: '#6b7280', maxWidth: '180px' }}>
-                            {v.comentarioCambio || '—'}
-                          </td>
-                          <td>
-                            <button
-                              className="btn-secundario"
-                              onClick={() => handleDescargarVersion(
-                                docSelVer.idDoc,
-                                v.numeroVersion,
-                                docSelVer.titulo
-                              )}
-                            >
-                              ⬇ v{v.numeroVersion}
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </>
-            ) : null}
-
-            <div className="modal-acciones">
-              <button className="btn-secundario" onClick={() => setModalVer(false)}>Cerrar</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── Modal nueva versión ─────────────────────────────────────── */}
+      {/* ── Modal nueva versión ── */}
       {modalNuevaVer && (
         <div className="modal-fondo" onClick={() => setModalNV(false)}>
           <div className="modal-card" style={{ maxWidth: '480px' }} onClick={(e) => e.stopPropagation()}>
@@ -679,29 +620,25 @@ export default function SeccionDocumentos() {
                   <label>¿Qué cambió en esta versión? *</label>
                   <textarea required value={formVer.ComentarioCambio}
                     onChange={(e) => setFormVer({ ...formVer, ComentarioCambio: e.target.value })}
-                    placeholder="Ej: Se actualizó la sección 3.2 por cambio en el procedimiento..." />
+                    placeholder="Ej: Se actualizó la sección 3.2..." />
                 </div>
                 <div className="campo-form">
                   <label>Nuevo archivo PDF</label>
-                  <input type="file" accept=".pdf"
-                    onChange={(e) => setArchivoVer(e.target.files[0])} />
+                  <input type="file" accept=".pdf" onChange={(e) => setArchivoVer(e.target.files[0])} />
                 </div>
                 {!archivoVer && (
                   <div className="campo-form">
                     <label>O escribe el nuevo contenido con formato</label>
-                    <EditorTexto
-                      value={formVer.ContenidoTexto}
+                    <EditorTexto value={formVer.ContenidoTexto}
                       onChange={(html) => setFormVer({ ...formVer, ContenidoTexto: html })}
-                      placeholder="Nuevo contenido del documento con formato..."
-                    />
+                      placeholder="Nuevo contenido del documento..." />
                   </div>
                 )}
               </div>
               {errorNV && <div className="alerta-error" style={{ marginTop: '1rem' }}>{errorNV}</div>}
+              {okNV    && <div className="alerta-ok"    style={{ marginTop: '1rem' }}>{okNV}</div>}
               <div className="modal-acciones">
-                <button type="button" className="btn-secundario" onClick={() => setModalNV(false)}>
-                  Cancelar
-                </button>
+                <button type="button" className="btn-secundario" onClick={() => setModalNV(false)}>Cancelar</button>
                 <button type="submit" className="btn-primario" disabled={subiendoVer}>
                   {subiendoVer ? 'Subiendo...' : 'Subir versión'}
                 </button>

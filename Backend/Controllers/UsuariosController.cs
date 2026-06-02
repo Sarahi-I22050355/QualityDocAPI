@@ -22,9 +22,6 @@ namespace QualityDocAPI.Controllers
             _config = config;
         }
 
-        // ─────────────────────────────────────────────────────────────────
-        // HELPER: extrae id_empresa del token
-        // ─────────────────────────────────────────────────────────────────
         private int? GetIdEmpresaToken()
         {
             var val = User.FindFirst("id_empresa")?.Value;
@@ -36,7 +33,6 @@ namespace QualityDocAPI.Controllers
 
         // ─────────────────────────────────────────────────────────────────
         // GET: api/Usuarios
-        // Admin: ve usuarios de su empresa.
         // ─────────────────────────────────────────────────────────────────
         [Authorize(Policy = "SoloAdmin")]
         [HttpGet]
@@ -138,7 +134,6 @@ namespace QualityDocAPI.Controllers
 
         // ─────────────────────────────────────────────────────────────────
         // POST: api/Usuarios/crear
-        // Admin crea usuarios en su propia empresa (id_empresa del token).
         // ─────────────────────────────────────────────────────────────────
         [Authorize(Policy = "SoloAdmin")]
         [HttpPost("crear")]
@@ -156,7 +151,6 @@ namespace QualityDocAPI.Controllers
                 {
                     con.Open();
 
-                    // El área debe pertenecer a la misma empresa
                     string verificarArea = @"
                         SELECT COUNT(*) FROM Areas
                         WHERE id_area = @idArea AND activo = 1 AND id_empresa = @idEmpresa";
@@ -175,12 +169,12 @@ namespace QualityDocAPI.Controllers
 
                     using (SqlCommand cmd = new SqlCommand(query, con))
                     {
-                        cmd.Parameters.AddWithValue("@idRol",    datos.IdRol);
-                        cmd.Parameters.AddWithValue("@idArea",   datos.IdArea);
+                        cmd.Parameters.AddWithValue("@idRol",     datos.IdRol);
+                        cmd.Parameters.AddWithValue("@idArea",    datos.IdArea);
                         cmd.Parameters.AddWithValue("@idEmpresa", idEmpresa);
-                        cmd.Parameters.AddWithValue("@nombre",   datos.NombreCompleto);
-                        cmd.Parameters.AddWithValue("@email",    datos.Email);
-                        cmd.Parameters.AddWithValue("@pass",     passwordEncriptada);
+                        cmd.Parameters.AddWithValue("@nombre",    datos.NombreCompleto);
+                        cmd.Parameters.AddWithValue("@email",     datos.Email);
+                        cmd.Parameters.AddWithValue("@pass",      passwordEncriptada);
                         cmd.ExecuteNonQuery();
                     }
                 }
@@ -232,15 +226,15 @@ namespace QualityDocAPI.Controllers
                             {
                                 usuarioEncontrado = new UsuarioSQL
                                 {
-                                    IdUsuario     = (int)rd["id_usuario"],
-                                    IdRol         = (int)rd["id_rol"],
+                                    IdUsuario      = (int)rd["id_usuario"],
+                                    IdRol          = (int)rd["id_rol"],
                                     NombreCompleto = rd["nombre_completo"].ToString()!,
-                                    PasswordHash  = rd["password_hash"].ToString()!,
-                                    IdArea        = rd["id_area"]    == DBNull.Value ? null : (int?)rd["id_area"],
-                                    IdEmpresa     = rd["id_empresa"] == DBNull.Value ? null : (int?)rd["id_empresa"],
-                                    EsAreaGeneral = (bool)rd["es_area_general"],
-                                    NombreArea    = rd["nombre_area"].ToString()!,
-                                    NombreEmpresa = rd["nombre_empresa"].ToString()!
+                                    PasswordHash   = rd["password_hash"].ToString()!,
+                                    IdArea         = rd["id_area"]    == DBNull.Value ? null : (int?)rd["id_area"],
+                                    IdEmpresa      = rd["id_empresa"] == DBNull.Value ? null : (int?)rd["id_empresa"],
+                                    EsAreaGeneral  = (bool)rd["es_area_general"],
+                                    NombreArea     = rd["nombre_area"].ToString()!,
+                                    NombreEmpresa  = rd["nombre_empresa"].ToString()!
                                 };
                             }
                         }
@@ -252,6 +246,19 @@ namespace QualityDocAPI.Controllers
                 {
                     return Unauthorized(new { mensaje = "Correo o contraseña incorrectos." });
                 }
+
+                // ── Actualizar último acceso ──────────────────────────────
+                try
+                {
+                    using var conUpd = new SqlConnection(_config.GetConnectionString("SqlConexion"));
+                    conUpd.Open();
+                    using var cmdUpd = new SqlCommand(
+                        "UPDATE Usuarios SET ultimo_acceso = @now WHERE id_usuario = @id", conUpd);
+                    cmdUpd.Parameters.AddWithValue("@now", DateTime.Now);
+                    cmdUpd.Parameters.AddWithValue("@id",  usuarioEncontrado.IdUsuario);
+                    cmdUpd.ExecuteNonQuery();
+                }
+                catch { /* no bloquear el login si falla el update */ }
 
                 string tokenGenerado = GenerarTokenJWT(usuarioEncontrado);
 
@@ -282,10 +289,10 @@ namespace QualityDocAPI.Controllers
                 new Claim(ClaimTypes.Name,           usuario.NombreCompleto),
                 new Claim("idRol",                   usuario.IdRol.ToString()),
                 new Claim(ClaimTypes.Role,           usuario.IdRol.ToString()),
-                new Claim("id_area",                 usuario.IdArea?.ToString()     ?? "0"),
+                new Claim("id_area",                 usuario.IdArea?.ToString()    ?? "0"),
                 new Claim("es_area_general",         usuario.EsAreaGeneral.ToString().ToLower()),
                 new Claim("nombre_area",             usuario.NombreArea),
-                new Claim("id_empresa",              usuario.IdEmpresa?.ToString()  ?? "0"),
+                new Claim("id_empresa",              usuario.IdEmpresa?.ToString() ?? "0"),
                 new Claim("nombre_empresa",          usuario.NombreEmpresa)
             };
 

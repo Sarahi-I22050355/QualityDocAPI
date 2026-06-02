@@ -3,17 +3,15 @@ import Layout from '../components/Layout'
 import api from '../api/axios'
 import '../components/Seccion.css'
 
-// El Operario solo puede:
-// - Buscar documentos Aprobados de su área + área General
-// - Descargar esos documentos
-// No puede subir, aprobar, ni ver logs.
-
 function SeccionDocumentosOperario() {
   const [busqueda, setBusqueda]     = useState('')
   const [resultados, setResultados] = useState([])
   const [buscando, setBuscando]     = useState(false)
   const [error, setError]           = useState('')
   const [buscadoYa, setBuscadoYa]   = useState(false)
+  // El operario solo ve la versión actual — no cargamos versiones anteriores
+  // porque el endpoint solo devuelve docs aprobados y el operario
+  // no tiene acceso al endpoint /versiones (policy SubeYAprueba)
 
   const formatFecha = (f) => f ? new Date(f).toLocaleString('es-MX', {
     day: '2-digit', month: '2-digit', year: 'numeric',
@@ -87,35 +85,36 @@ function SeccionDocumentosOperario() {
               <thead>
                 <tr>
                   <th>Título</th>
+                  <th>Versión</th>
                   <th>Categoría</th>
                   <th>Área</th>
-                  <th>Autor</th>
+                  <th>Fecha</th>
                   <th>Descargar</th>
                 </tr>
               </thead>
               <tbody>
                 {resultados.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="sin-datos">
+                    <td colSpan={6} className="sin-datos">
                       No hay documentos aprobados con ese término de búsqueda.
                     </td>
                   </tr>
                 ) : resultados.map((r, i) => {
                   const doc = r.documento ?? r
+                  const ver = r.version   ?? '—'
                   return (
                     <tr key={doc.sqlId ?? i}>
                       <td>
-                        <strong>{doc.titulo}</strong>
-                        {/* ── Auditoría ── */}
-                        <div style={{ fontSize: '0.75rem', color: '#6b7280', marginTop: '4px' }}>
-                          {doc.subidoPor && <span>Subido por: <strong>{doc.subidoPor}</strong></span>}
-                          {doc.fechaSubida && <span> · {formatFecha(doc.fechaSubida)}</span>}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span style={{ fontWeight: 600 }}>{doc.titulo}</span>
+                          <span className="badge badge-verde" style={{ fontSize: '0.68rem' }}>Aprobado</span>
                         </div>
-                        {doc.ultimoFlujo?.revisadoPor && (
-                          <div style={{ fontSize: '0.75rem', color: '#6b7280', marginTop: '2px' }}>
-                            Aprobado por: <strong>{doc.ultimoFlujo.revisadoPor}</strong>
-                          </div>
-                        )}
+                        <div style={{ fontSize: '0.75rem', color: '#6b7280', marginTop: '3px' }}>
+                          {doc.subidoPor && <span>Subido por: <strong>{doc.subidoPor}</strong></span>}
+                          {doc.ultimoFlujo?.revisadoPor && (
+                            <span> · Aprobado por: <strong>{doc.ultimoFlujo.revisadoPor}</strong></span>
+                          )}
+                        </div>
                         {doc.etiquetas?.length > 0 && (
                           <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginTop: '4px' }}>
                             {doc.etiquetas.map((e, j) => (
@@ -127,16 +126,21 @@ function SeccionDocumentosOperario() {
                           </div>
                         )}
                       </td>
-                      <td>{doc.categoria}</td>
                       <td>
-                        {doc.area}
+                        <span className="badge badge-morado">v{ver}</span>
+                      </td>
+                      <td style={{ color: '#9ca3af', fontSize: '0.875rem' }}>{doc.categoria}</td>
+                      <td>
+                        <span>{doc.area}</span>
                         {doc.area?.toLowerCase() === 'general' && (
                           <span className="badge badge-morado" style={{ marginLeft: '6px', fontSize: '0.7rem' }}>
                             General
                           </span>
                         )}
                       </td>
-                      <td>{doc.autor}</td>
+                      <td style={{ fontSize: '0.8rem', color: '#6b7280', whiteSpace: 'nowrap' }}>
+                        {formatFecha(doc.fechaSubida)}
+                      </td>
                       <td>
                         <button
                           className="btn-primario"

@@ -35,7 +35,7 @@ namespace QualityDocAPI.Controllers
         }
 
         // ─────────────────────────────────────────────────────────────────
-        // HELPER: extrae claims del token JWT (incluye empresa)
+        // HELPER: extrae claims del token JWT
         // ─────────────────────────────────────────────────────────────────
         private (int idUsuario, string rol, bool esGeneral, int? idArea, int? idEmpresa, bool esSuperAdmin) ObtenerDatosToken()
         {
@@ -69,21 +69,13 @@ namespace QualityDocAPI.Controllers
             catch { }
         }
 
-        // ─────────────────────────────────────────────────────────────────
-        // ACCESO PARA VER: verifica empresa + área
-        // ─────────────────────────────────────────────────────────────────
         private bool TieneAccesoParaVer(string rol, bool esGeneral, int? idAreaToken,
             int? idAreaDocumento, int? idEmpresaToken, int idEmpresaDocumento)
         {
-            // Super-admin ve todo
             if (rol == "5") return true;
-            // Diferente empresa → sin acceso
             if (idEmpresaToken != idEmpresaDocumento) return false;
-            // Admin o área general → ve todo dentro de su empresa
             if (rol == "1" || esGeneral) return true;
-            // Mismo área → acceso
             if (idAreaDocumento == idAreaToken) return true;
-            // Área General del documento → acceso
             if (idAreaDocumento.HasValue)
             {
                 var areaDoc = _sqlContext.Areas.Find(idAreaDocumento.Value);
@@ -92,9 +84,6 @@ namespace QualityDocAPI.Controllers
             return false;
         }
 
-        // ─────────────────────────────────────────────────────────────────
-        // ACCESO PARA MODIFICAR
-        // ─────────────────────────────────────────────────────────────────
         private bool TieneAccesoParaModificar(string rol, bool esGeneral, int? idAreaToken,
             int? idAreaDocumento, int? idEmpresaToken, int idEmpresaDocumento)
         {
@@ -104,8 +93,29 @@ namespace QualityDocAPI.Controllers
             return idAreaDocumento == idAreaToken;
         }
 
+        // ─────────────────────────────────────────────────────────────────
+        // HELPER: verifica si el revisor puede resolver este flujo específico
+        // El revisor solo puede resolver el flujo cuya id_area_requerida
+        // coincida con su área, o si es del área General puede resolver
+        // el flujo del área General.
+        // ─────────────────────────────────────────────────────────────────
+        private bool PuedeResolverFlujo(FlujoAprobacionSQL flujo, bool esGeneral, int? idAreaToken, int? idEmpresaToken, int idEmpresaDocumento)
+        {
+            if (idEmpresaToken != idEmpresaDocumento) return false;
+            // Si no tiene área requerida (flujo legacy) → cualquier revisor con acceso puede
+            if (!flujo.IdAreaRequerida.HasValue) return true;
+            // Revisor General resuelve flujos del área General
+            if (esGeneral)
+            {
+                var areaReq = _sqlContext.Areas.Find(flujo.IdAreaRequerida.Value);
+                return areaReq != null && areaReq.EsGeneral;
+            }
+            // Revisor de área específica resuelve solo su flujo
+            return flujo.IdAreaRequerida == idAreaToken;
+        }
+
         // ═══════════════════════════════════════════════════════════════════
-        // POST: api/Documentos — subir nuevo documento
+        // POST: api/Documentos
         // ═══════════════════════════════════════════════════════════════════
         [Authorize(Policy = "SubeYAprueba")]
         [HttpPost]
@@ -123,7 +133,7 @@ namespace QualityDocAPI.Controllers
             var (idUsuario, rol, esGeneral, idAreaToken, idEmpresaToken, esSuperAdmin) = ObtenerDatosToken();
 
             if (idEmpresaToken == null)
-                return StatusCode(403, new { Mensaje = "El super-admin no puede subir documentos directamente. Usa el panel de la empresa." });
+                return StatusCode(403, new { Mensaje = "El super-admin no puede subir documentos directamente." });
 
             var nombreUsuario = User.FindFirst(ClaimTypes.Name)?.Value ?? "Usuario";
             var nombreArea    = User.FindFirst("nombre_area")?.Value    ?? "General";
@@ -161,7 +171,7 @@ namespace QualityDocAPI.Controllers
                         foreach (var page in pdf.GetPages())
                             textoExtraido += page.Text + " ";
 
-                    var    sftpSettings   = _config.GetSection("SftpConfig");
+                    var sftpSettings   = _config.GetSection("SftpConfig");
                     nombreArchivoFinal = $"{Guid.NewGuid()}_{datosDePantalla.Archivo.FileName}";
                     string remotePath  = sftpSettings["RemotePath"] ?? "/uploads";
                     rutaFinalEnLinux   = $"{remotePath}/{nombreArchivoFinal}";
@@ -178,9 +188,9 @@ namespace QualityDocAPI.Controllers
                 }
                 else
                 {
-                    textoExtraido     = datosDePantalla.ContenidoTexto!;
-                    tamanoBytes       = System.Text.Encoding.UTF8.GetByteCount(textoExtraido);
-                    var sftpCfg       = _config.GetSection("SftpConfig");
+                    textoExtraido      = datosDePantalla.ContenidoTexto!;
+                    tamanoBytes        = System.Text.Encoding.UTF8.GetByteCount(textoExtraido);
+                    var sftpCfg        = _config.GetSection("SftpConfig");
                     nombreArchivoFinal = $"{Guid.NewGuid()}.html";
                     rutaFinalEnLinux   = $"{sftpCfg["RemotePath"] ?? "/uploads"}/{nombreArchivoFinal}";
 
@@ -200,7 +210,7 @@ namespace QualityDocAPI.Controllers
                     .Where(c => c.Id == datosDePantalla.IdCategoria && c.Activo)
                     .Select(c => c.Nombre)
                     .FirstOrDefault() ?? "Categoría General";
-                    
+
                 var documentoSQL = new DocumentoSQL
                 {
                     Titulo        = datosDePantalla.Titulo,
@@ -293,14 +303,11 @@ namespace QualityDocAPI.Controllers
 
                 if (esSuperAdmin)
                 {
-                    // Super-admin busca en TODAS las empresas
                     filtroFinal = filtroTexto;
                 }
                 else
                 {
-                    // Filtrar por empresa primero
                     var filtroEmpresa = builder.Eq(d => d.Empresa, nombreEmpresa);
-
                     if (esGeneral || rol == "1")
                     {
                         filtroFinal = builder.And(filtroTexto, filtroEmpresa);
@@ -311,12 +318,10 @@ namespace QualityDocAPI.Controllers
                             .Where(a => a.EsGeneral && a.Activo && a.IdEmpresa == idEmpresaToken)
                             .Select(a => a.Nombre)
                             .ToList();
-
                         var filtroArea = builder.Or(
                             builder.Eq(d => d.Area, nombreArea),
                             builder.In(d => d.Area, areasGenerales)
                         );
-
                         filtroFinal = builder.And(filtroTexto, filtroEmpresa, filtroArea);
                     }
                 }
@@ -340,11 +345,27 @@ namespace QualityDocAPI.Controllers
                 var resultadosConEstado = resultadosMongo.Select(docMongo =>
                 {
                     var docSql = documentosSQL.FirstOrDefault(d => d.Id == docMongo.SqlId);
+                    // Calcular firmas para mostrar progreso
+                    int firmasReq = 0, firmasOk = 0;
+                    if (docSql != null)
+                    {
+                        var flujos = _sqlContext.FlujoAprobacion
+                            .Where(f => f.IdDocumento == docSql.Id)
+                            .ToList();
+                        var activos = flujos.Where(f => f.IdAreaRequerida.HasValue).ToList();
+                        if (activos.Any())
+                        {
+                            firmasReq = activos.Count;
+                            firmasOk  = activos.Count(f => f.Decision == "Aprobado");
+                        }
+                    }
                     return new
                     {
-                        Documento = docMongo,
-                        Estado    = docSql?.IdEstado switch { 1 => "Borrador", 2 => "Aprobado", 3 => "Obsoleto", _ => "Desconocido" },
-                        Version   = docSql?.NumeroVersion
+                        Documento    = docMongo,
+                        Estado       = docSql?.IdEstado switch { 1 => "Borrador", 2 => "Aprobado", 3 => "Obsoleto", _ => "Desconocido" },
+                        Version      = docSql?.NumeroVersion,
+                        FirmasReq    = firmasReq,
+                        FirmasOk     = firmasOk
                     };
                 }).ToList();
 
@@ -358,6 +379,7 @@ namespace QualityDocAPI.Controllers
 
         // ═══════════════════════════════════════════════════════════════════
         // GET: api/Documentos/pendientes-revision
+        // Muestra al revisor solo los flujos que le corresponden a ÉL.
         // ═══════════════════════════════════════════════════════════════════
         [Authorize(Policy = "PuedeRevisar")]
         [HttpGet("pendientes-revision")]
@@ -365,66 +387,110 @@ namespace QualityDocAPI.Controllers
         {
             try
             {
-                var (_, rol, esGeneral, _, idEmpresaToken, esSuperAdmin) = ObtenerDatosToken();
-                var nombreArea    = User.FindFirst("nombre_area")?.Value    ?? "";
+                var (_, rol, esGeneral, idAreaToken, idEmpresaToken, esSuperAdmin) = ObtenerDatosToken();
                 var nombreEmpresa = User.FindFirst("nombre_empresa")?.Value ?? "";
                 var builder       = Builders<DocumentoMongo>.Filter;
 
-                FilterDefinition<DocumentoMongo> filtroArea;
-
+                // Filtro Mongo por empresa
+                FilterDefinition<DocumentoMongo> filtroMongo;
                 if (esSuperAdmin)
                 {
-                    filtroArea = builder.Empty;
+                    filtroMongo = builder.Empty;
                 }
                 else
                 {
-                    var filtroEmpresa = builder.Eq(d => d.Empresa, nombreEmpresa);
-
-                    if (esGeneral || rol == "1")
-                    {
-                        filtroArea = filtroEmpresa;
-                    }
-                    else
-                    {
-                        var areasGenerales = _sqlContext.Areas
-                            .Where(a => a.EsGeneral && a.Activo && a.IdEmpresa == idEmpresaToken)
-                            .Select(a => a.Nombre)
-                            .ToList();
-
-                        filtroArea = builder.And(
-                            filtroEmpresa,
-                            builder.Or(
-                                builder.Eq(d => d.Area, nombreArea),
-                                builder.In(d => d.Area, areasGenerales)
-                            )
-                        );
-                    }
+                    filtroMongo = builder.Eq(d => d.Empresa, nombreEmpresa);
                 }
 
-                var todosMongo = await _mongoCollection.Find(filtroArea).ToListAsync();
+                var todosMongo = await _mongoCollection.Find(filtroMongo).ToListAsync();
                 var idsMongo   = todosMongo.Select(r => r.SqlId).ToList();
 
-                var idsPendientes = _sqlContext.FlujoAprobacion
-                    .Where(f => f.Decision == "Pendiente" && idsMongo.Contains(f.IdDocumento))
-                    .Select(f => f.IdDocumento)
-                    .Distinct()
-                    .ToList();
+                // Obtener flujos pendientes que corresponden a ESTE revisor
+                List<int> idDocumentosPendientes;
 
-                if (idsPendientes.Count == 0)
+                if (esSuperAdmin)
+                {
+                    // SuperAdmin ve todos los pendientes
+                    idDocumentosPendientes = _sqlContext.FlujoAprobacion
+                        .Where(f => f.Decision == "Pendiente" && idsMongo.Contains(f.IdDocumento))
+                        .Select(f => f.IdDocumento)
+                        .Distinct()
+                        .ToList();
+                }
+                else if (esGeneral || rol == "1")
+                {
+                    // Admin o Revisor General: ve pendientes cuya área requerida sea General
+                    var idsAreasGenerales = _sqlContext.Areas
+                        .Where(a => a.EsGeneral && a.Activo && a.IdEmpresa == idEmpresaToken)
+                        .Select(a => a.Id)
+                        .ToList();
+
+                    idDocumentosPendientes = _sqlContext.FlujoAprobacion
+                        .Where(f => f.Decision == "Pendiente"
+                            && idsMongo.Contains(f.IdDocumento)
+                            && (f.IdAreaRequerida == null || idsAreasGenerales.Contains(f.IdAreaRequerida.Value)))
+                        .Select(f => f.IdDocumento)
+                        .Distinct()
+                        .ToList();
+                }
+                else
+                {
+                    // Revisor de área específica: ve pendientes de su área
+                    idDocumentosPendientes = _sqlContext.FlujoAprobacion
+                        .Where(f => f.Decision == "Pendiente"
+                            && idsMongo.Contains(f.IdDocumento)
+                            && f.IdAreaRequerida == idAreaToken)
+                        .Select(f => f.IdDocumento)
+                        .Distinct()
+                        .ToList();
+                }
+
+                if (!idDocumentosPendientes.Any())
                     return Ok(new { Mensaje = "No hay documentos pendientes de revisión.", Total = 0, Resultados = new List<object>() });
 
                 var documentosSQL = _sqlContext.Documentos
-                    .Where(d => idsPendientes.Contains(d.Id))
+                    .Where(d => idDocumentosPendientes.Contains(d.Id))
                     .ToList();
 
                 var resultados = documentosSQL.Select(docSql =>
                 {
                     var docMongo = todosMongo.FirstOrDefault(m => m.SqlId == docSql.Id);
+
+                    // Obtener el flujo específico que este revisor debe resolver
+                    FlujoAprobacionSQL? flujoParaEsteRevisor;
+                    if (esGeneral || rol == "1")
+                    {
+                        var idsAreasGenerales = _sqlContext.Areas
+                            .Where(a => a.EsGeneral && a.Activo && a.IdEmpresa == idEmpresaToken)
+                            .Select(a => a.Id).ToList();
+                        flujoParaEsteRevisor = _sqlContext.FlujoAprobacion
+                            .FirstOrDefault(f => f.IdDocumento == docSql.Id
+                                && f.Decision == "Pendiente"
+                                && (f.IdAreaRequerida == null || idsAreasGenerales.Contains(f.IdAreaRequerida.Value)));
+                    }
+                    else
+                    {
+                        flujoParaEsteRevisor = _sqlContext.FlujoAprobacion
+                            .FirstOrDefault(f => f.IdDocumento == docSql.Id
+                                && f.Decision == "Pendiente"
+                                && f.IdAreaRequerida == idAreaToken);
+                    }
+
+                    // Progreso de firmas
+                    var todosLosFlujos = _sqlContext.FlujoAprobacion
+                        .Where(f => f.IdDocumento == docSql.Id && f.IdAreaRequerida.HasValue)
+                        .ToList();
+                    int firmasReq = todosLosFlujos.Count;
+                    int firmasOk  = todosLosFlujos.Count(f => f.Decision == "Aprobado");
+
                     return new
                     {
-                        Documento = docMongo,
-                        Estado    = docSql.IdEstado switch { 1 => "Borrador", 2 => "Aprobado", 3 => "Obsoleto", _ => "Desconocido" },
-                        Version   = docSql.NumeroVersion
+                        Documento          = docMongo,
+                        Estado             = docSql.IdEstado switch { 1 => "Borrador", 2 => "Aprobado", 3 => "Obsoleto", _ => "Desconocido" },
+                        Version            = docSql.NumeroVersion,
+                        IdFlujoParaResolver = flujoParaEsteRevisor?.Id,
+                        FirmasReq          = firmasReq,
+                        FirmasOk           = firmasOk
                     };
                 }).ToList();
 
@@ -438,6 +504,7 @@ namespace QualityDocAPI.Controllers
 
         // ═══════════════════════════════════════════════════════════════════
         // PUT: api/Documentos/solicitar-aprobacion/{id}
+        // Crea UN flujo por área requerida (área del doc + área General)
         // ═══════════════════════════════════════════════════════════════════
         [Authorize(Policy = "SubeYAprueba")]
         [HttpPut("solicitar-aprobacion/{id}")]
@@ -461,16 +528,64 @@ namespace QualityDocAPI.Controllers
                 if (yaExistePendiente)
                     return BadRequest(new { Mensaje = "Este documento ya tiene una solicitud de aprobación pendiente." });
 
-                var flujo = new FlujoAprobacionSQL
+                // Obtener el área General de la empresa
+                var areaGeneral = _sqlContext.Areas
+                    .FirstOrDefault(a => a.EsGeneral && a.Activo && a.IdEmpresa == documento.IdEmpresa);
+
+                // Determinar si el documento es del área General
+                bool esAreaGeneral = documento.IdArea.HasValue &&
+                    _sqlContext.Areas.Any(a => a.Id == documento.IdArea.Value && a.EsGeneral);
+
+                int firmasCreadas = 0;
+
+                if (esAreaGeneral || !documento.IdArea.HasValue)
                 {
-                    IdDocumento    = id,
-                    IdSolicitante  = idUsuario,
-                    Decision       = "Pendiente",
-                    FechaSolicitud = DateTime.Now
-                };
-                _sqlContext.FlujoAprobacion.Add(flujo);
+                    // Documento del área General → solo 1 firma: el Revisor General
+                    if (areaGeneral != null)
+                    {
+                        _sqlContext.FlujoAprobacion.Add(new FlujoAprobacionSQL
+                        {
+                            IdDocumento     = id,
+                            IdSolicitante   = idUsuario,
+                            Decision        = "Pendiente",
+                            FechaSolicitud  = DateTime.Now,
+                            IdAreaRequerida = areaGeneral.Id
+                        });
+                        firmasCreadas = 1;
+                    }
+                }
+                else
+                {
+                    // Documento de área específica → 2 firmas: área del doc + área General
+                    // Firma 1: Revisor del área del documento
+                    _sqlContext.FlujoAprobacion.Add(new FlujoAprobacionSQL
+                    {
+                        IdDocumento     = id,
+                        IdSolicitante   = idUsuario,
+                        Decision        = "Pendiente",
+                        FechaSolicitud  = DateTime.Now,
+                        IdAreaRequerida = documento.IdArea!.Value
+                    });
+                    firmasCreadas++;
+
+                    // Firma 2: Revisor General (solo si existe y es diferente al área del doc)
+                    if (areaGeneral != null && areaGeneral.Id != documento.IdArea.Value)
+                    {
+                        _sqlContext.FlujoAprobacion.Add(new FlujoAprobacionSQL
+                        {
+                            IdDocumento     = id,
+                            IdSolicitante   = idUsuario,
+                            Decision        = "Pendiente",
+                            FechaSolicitud  = DateTime.Now,
+                            IdAreaRequerida = areaGeneral.Id
+                        });
+                        firmasCreadas++;
+                    }
+                }
+
                 await _sqlContext.SaveChangesAsync();
 
+                // Actualizar Mongo
                 var filtroMongo = Builders<DocumentoMongo>.Filter.Eq(d => d.SqlId, id);
                 var updateMongo = Builders<DocumentoMongo>.Update.Set(d => d.UltimoFlujo, new UltimoFlujoMongo
                 {
@@ -484,10 +599,10 @@ namespace QualityDocAPI.Controllers
 
                 return Ok(new
                 {
-                    Mensaje         = "Solicitud de revisión creada correctamente.",
-                    IdFlujo         = flujo.Id,
+                    Mensaje         = $"Solicitud creada. Se requieren {firmasCreadas} firma(s) para aprobar.",
                     IdDocumento     = id,
-                    TituloDocumento = documento.Titulo
+                    TituloDocumento = documento.Titulo,
+                    FirmasRequeridas = firmasCreadas
                 });
             }
             catch (Exception ex)
@@ -498,6 +613,8 @@ namespace QualityDocAPI.Controllers
 
         // ═══════════════════════════════════════════════════════════════════
         // PUT: api/Documentos/resolver-aprobacion/{idFlujo}
+        // Resuelve UNA firma. Si todas aprueban → documento Aprobado.
+        // Si una rechaza → documento regresa a Borrador y flujos cancelados.
         // ═══════════════════════════════════════════════════════════════════
         [Authorize(Policy = "PuedeRevisar")]
         [HttpPut("resolver-aprobacion/{idFlujo}")]
@@ -520,21 +637,74 @@ namespace QualityDocAPI.Controllers
 
                 var (idUsuario, rol, esGeneral, idAreaToken, idEmpresaToken, esSuperAdmin) = ObtenerDatosToken();
 
-                if (!TieneAccesoParaModificar(rol, esGeneral, idAreaToken, documento.IdArea, idEmpresaToken, documento.IdEmpresa))
-                    return StatusCode(403, new { Mensaje = "No puedes resolver aprobaciones de documentos de otra área o empresa." });
+                // Verificar que este revisor puede resolver este flujo específico
+                if (!esSuperAdmin && !PuedeResolverFlujo(flujo, esGeneral, idAreaToken, idEmpresaToken, documento.IdEmpresa))
+                    return StatusCode(403, new { Mensaje = "No puedes resolver este flujo — no corresponde a tu área." });
 
                 var nombreRevisor = User.FindFirst(ClaimTypes.Name)?.Value ?? "Revisor";
 
+                // Resolver este flujo
                 flujo.IdRevisor       = idUsuario;
                 flujo.Decision        = datos.Decision;
                 flujo.Comentarios     = datos.Comentarios;
                 flujo.FechaResolucion = DateTime.Now;
 
-                documento.IdEstado          = datos.Decision == "Aprobado" ? 2 : 1;
-                documento.FechaModificacion = DateTime.Now;
+                string nuevoEstado;
+                string mensajeRespuesta;
+
+                if (datos.Decision == "Rechazado")
+                {
+                    // Cancelar todos los demás flujos pendientes del mismo documento
+                    var otrosPendientes = _sqlContext.FlujoAprobacion
+                        .Where(f => f.IdDocumento == flujo.IdDocumento
+                            && f.Id != idFlujo
+                            && f.Decision == "Pendiente")
+                        .ToList();
+
+                    foreach (var otro in otrosPendientes)
+                    {
+                        otro.Decision        = "Cancelado";
+                        otro.FechaResolucion = DateTime.Now;
+                        otro.Comentarios     = $"Cancelado por rechazo de {nombreRevisor}";
+                    }
+
+                    documento.IdEstado          = 1; // Regresa a Borrador
+                    documento.FechaModificacion = DateTime.Now;
+                    nuevoEstado     = "Borrador";
+                    mensajeRespuesta = "Documento rechazado. Regresa a Borrador — el supervisor puede volver a solicitar.";
+                }
+                else
+                {
+                    // Verificar si TODOS los flujos de este documento están aprobados
+                    var todosLosFlujos = _sqlContext.FlujoAprobacion
+                        .Where(f => f.IdDocumento == flujo.IdDocumento && f.IdAreaRequerida.HasValue)
+                        .ToList();
+
+                    // Contar cuántos quedan pendientes (excluyendo el que acabamos de aprobar)
+                    int pendientesRestantes = todosLosFlujos
+                        .Count(f => f.Id != idFlujo && f.Decision == "Pendiente");
+
+                    if (pendientesRestantes == 0)
+                    {
+                        // Todas las firmas están dadas → Aprobar el documento
+                        documento.IdEstado          = 2;
+                        documento.FechaModificacion = DateTime.Now;
+                        nuevoEstado      = "Aprobado";
+                        mensajeRespuesta = "Todas las firmas obtenidas. ¡Documento aprobado y disponible para todos!";
+                    }
+                    else
+                    {
+                        // Aún faltan firmas
+                        documento.IdEstado          = 1; // Sigue en Borrador hasta que todos aprueben
+                        documento.FechaModificacion = DateTime.Now;
+                        nuevoEstado      = "Borrador";
+                        mensajeRespuesta = $"Firma registrada. Faltan {pendientesRestantes} firma(s) más para aprobar el documento.";
+                    }
+                }
 
                 await _sqlContext.SaveChangesAsync();
 
+                // Actualizar Mongo
                 var filtroMongo = Builders<DocumentoMongo>.Filter.Eq(d => d.SqlId, documento.Id);
                 var updateMongo = Builders<DocumentoMongo>.Update.Set(d => d.UltimoFlujo, new UltimoFlujoMongo
                 {
@@ -550,13 +720,11 @@ namespace QualityDocAPI.Controllers
 
                 return Ok(new
                 {
-                    Mensaje     = datos.Decision == "Aprobado"
-                        ? "Documento aprobado. Ya está disponible para todos."
-                        : "Documento rechazado. Regresa a Borrador.",
+                    Mensaje     = mensajeRespuesta,
                     IdFlujo     = flujo.Id,
                     IdDocumento = documento.Id,
                     Decision    = flujo.Decision,
-                    NuevoEstado = datos.Decision == "Aprobado" ? "Aprobado" : "Borrador"
+                    NuevoEstado = nuevoEstado
                 });
             }
             catch (Exception ex)
@@ -587,11 +755,14 @@ namespace QualityDocAPI.Controllers
 
                 const string sql = @"
                     SELECT f.id_flujo, f.decision, f.comentarios, f.fecha_solicitud, f.fecha_resolucion,
+                           f.id_area_requerida,
+                           ar.nombre AS nombre_area_requerida,
                            us.nombre_completo AS nombre_solicitante,
                            ur.nombre_completo AS nombre_revisor
                     FROM  FlujoAprobacion f
                     INNER JOIN Usuarios us ON f.id_solicitante = us.id_usuario
                     LEFT  JOIN Usuarios ur ON f.id_revisor     = ur.id_usuario
+                    LEFT  JOIN Areas    ar ON f.id_area_requerida = ar.id_area
                     WHERE f.id_documento = @id
                     ORDER BY f.fecha_solicitud ASC";
 
@@ -605,19 +776,27 @@ namespace QualityDocAPI.Controllers
                     {
                         historial.Add(new
                         {
-                            IdFlujo           = (int)rd["id_flujo"],
-                            Decision          = rd["decision"].ToString(),
-                            Comentarios       = rd["comentarios"]       == DBNull.Value ? null : rd["comentarios"].ToString(),
-                            NombreSolicitante = rd["nombre_solicitante"].ToString(),
-                            NombreRevisor     = rd["nombre_revisor"]    == DBNull.Value ? "Pendiente de revisión" : rd["nombre_revisor"].ToString(),
-                            FechaSolicitud    = (DateTime)rd["fecha_solicitud"],
-                            FechaResolucion   = rd["fecha_resolucion"]  == DBNull.Value ? (DateTime?)null : (DateTime)rd["fecha_resolucion"]
+                            IdFlujo              = (int)rd["id_flujo"],
+                            Decision             = rd["decision"].ToString(),
+                            Comentarios          = rd["comentarios"]            == DBNull.Value ? null : rd["comentarios"].ToString(),
+                            NombreSolicitante    = rd["nombre_solicitante"].ToString(),
+                            NombreRevisor        = rd["nombre_revisor"]         == DBNull.Value ? "Pendiente de revisión" : rd["nombre_revisor"].ToString(),
+                            AreaRequerida        = rd["nombre_area_requerida"]  == DBNull.Value ? "Sin área específica"   : rd["nombre_area_requerida"].ToString(),
+                            FechaSolicitud       = (DateTime)rd["fecha_solicitud"],
+                            FechaResolucion      = rd["fecha_resolucion"]       == DBNull.Value ? (DateTime?)null : (DateTime)rd["fecha_resolucion"]
                         });
                     }
                 }
 
                 bool hayPendiente = _sqlContext.FlujoAprobacion
                     .Any(f => f.IdDocumento == id && f.Decision == "Pendiente");
+
+                // Calcular progreso de firmas
+                var flujosFirmados = _sqlContext.FlujoAprobacion
+                    .Where(f => f.IdDocumento == id && f.IdAreaRequerida.HasValue)
+                    .ToList();
+                int firmasReq = flujosFirmados.Count;
+                int firmasOk  = flujosFirmados.Count(f => f.Decision == "Aprobado");
 
                 return Ok(new
                 {
@@ -626,6 +805,8 @@ namespace QualityDocAPI.Controllers
                     Version            = documento.NumeroVersion,
                     EstadoActual       = documento.IdEstado switch { 1 => "Borrador", 2 => "Aprobado", 3 => "Obsoleto", _ => "Desconocido" },
                     HaySolicitudActiva = hayPendiente,
+                    FirmasRequeridas   = firmasReq,
+                    FirmasObtenidas    = firmasOk,
                     TotalMovimientos   = historial.Count,
                     Historial          = historial
                 });
@@ -657,7 +838,7 @@ namespace QualityDocAPI.Controllers
                 if (rol == "3" && documento.IdEstado != 2)
                     return StatusCode(403, new { Mensaje = "Solo puedes descargar documentos aprobados." });
 
-                string titulo      = string.IsNullOrWhiteSpace(documento.Titulo) ? "Documento Sin Título" : documento.Titulo;
+                string titulo       = string.IsNullOrWhiteSpace(documento.Titulo) ? "Documento Sin Título" : documento.Titulo;
                 string nombreSalida = string.Join("_", titulo.Split(Path.GetInvalidFileNameChars())) + ".pdf";
 
                 if (!string.IsNullOrEmpty(documento.RutaArchivo)
@@ -764,9 +945,9 @@ namespace QualityDocAPI.Controllers
                 }
                 else
                 {
-                    textoExtraido     = datos.ContenidoTexto!;
-                    tamanoBytes       = System.Text.Encoding.UTF8.GetByteCount(textoExtraido);
-                    var sftpCfg       = _config.GetSection("SftpConfig");
+                    textoExtraido      = datos.ContenidoTexto!;
+                    tamanoBytes        = System.Text.Encoding.UTF8.GetByteCount(textoExtraido);
+                    var sftpCfg        = _config.GetSection("SftpConfig");
                     nombreArchivoNuevo = $"{Guid.NewGuid()}.html";
                     rutaNueva          = $"{sftpCfg["RemotePath"] ?? "/uploads"}/{nombreArchivoNuevo}";
 
@@ -915,8 +1096,8 @@ namespace QualityDocAPI.Controllers
                 if (version == null)
                     return NotFound(new { Mensaje = $"No existe la versión {numeroVersion} para este documento." });
 
-                string tituloVer     = string.IsNullOrWhiteSpace(documento.Titulo) ? "Documento Sin Título" : documento.Titulo;
-                string nombreSalida  = $"v{numeroVersion}_{string.Join("_", tituloVer.Split(Path.GetInvalidFileNameChars()))}.pdf";
+                string tituloVer    = string.IsNullOrWhiteSpace(documento.Titulo) ? "Documento Sin Título" : documento.Titulo;
+                string nombreSalida = $"v{numeroVersion}_{string.Join("_", tituloVer.Split(Path.GetInvalidFileNameChars()))}.pdf";
 
                 if (!string.IsNullOrEmpty(version.RutaArchivo)
                     && version.RutaArchivo != "Sin archivo físico"
@@ -967,9 +1148,6 @@ namespace QualityDocAPI.Controllers
             }
         }
 
-        // ─────────────────────────────────────────────────────────────────
-        // Debug endpoint — solo desarrollo
-        // ─────────────────────────────────────────────────────────────────
         [AllowAnonymous]
         [HttpGet("ver-todo-mongo")]
         public async Task<IActionResult> VerTodoMongo()
@@ -985,9 +1163,6 @@ namespace QualityDocAPI.Controllers
             }
         }
 
-        // ─────────────────────────────────────────────────────────────────
-        // HELPERS de generación de PDF
-        // ─────────────────────────────────────────────────────────────────
         private string ConstruirHtmlParaPDF(string titulo, string contenidoHtml, string? version = null)
         {
             string versionBadge = version != null

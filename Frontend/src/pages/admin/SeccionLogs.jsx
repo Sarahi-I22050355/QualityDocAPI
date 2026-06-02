@@ -86,7 +86,7 @@ export default function SeccionLogs() {
         <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '1.25rem' }}>
           {resumen.map((r) => (
             <div key={r.accion} className="card" style={{ padding: '12px 16px', minWidth: '120px', textAlign: 'center', marginBottom: 0 }}>
-              <div style={{ fontSize: '1.5rem', fontWeight: 600, color: '#4f46e5' }}>{r.total}</div>
+              <div style={{ fontSize: '1.5rem', fontWeight: 600, color: '#4f46e5' }}>{r.cantidad}</div>
               <div style={{ fontSize: '0.75rem', color: '#6b7280', marginTop: '2px' }}>{r.accion}</div>
             </div>
           ))}

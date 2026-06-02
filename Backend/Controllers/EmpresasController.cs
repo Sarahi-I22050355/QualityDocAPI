@@ -4,6 +4,7 @@ using QualityDocAPI.Data;
 using QualityDocAPI.Models;
 using Microsoft.Data.SqlClient;
 using BCrypt.Net;
+using QualityDocAPI.DTOs;
 
 namespace QualityDocAPI.Controllers
 {
@@ -12,7 +13,7 @@ namespace QualityDocAPI.Controllers
     [Authorize(Policy = "EsSuperAdmin")]
     public class EmpresasController : ControllerBase
     {
-        private readonly SqlContext    _sqlContext;
+        private readonly SqlContext     _sqlContext;
         private readonly IConfiguration _config;
 
         public EmpresasController(SqlContext sqlContext, IConfiguration config)
@@ -23,7 +24,6 @@ namespace QualityDocAPI.Controllers
 
         // ─────────────────────────────────────────────────────────────────
         // GET: api/Empresas
-        // Lista todas las empresas del sistema.
         // ─────────────────────────────────────────────────────────────────
         [HttpGet]
         public IActionResult ObtenerEmpresas()
@@ -52,7 +52,6 @@ namespace QualityDocAPI.Controllers
 
         // ─────────────────────────────────────────────────────────────────
         // POST: api/Empresas
-        // Crear una nueva empresa.
         // ─────────────────────────────────────────────────────────────────
         [HttpPost]
         public async Task<IActionResult> CrearEmpresa([FromBody] CrearEmpresaDTO datos)
@@ -111,97 +110,96 @@ namespace QualityDocAPI.Controllers
 
         // ─────────────────────────────────────────────────────────────────
         // POST: api/Empresas/{idEmpresa}/admin
-        // Crea el admin (rol 1) para una empresa específica.
-        // También crea el área General de esa empresa automáticamente.
+        // Crea el área General y el admin en una sola transacción ADO.NET.
         // ─────────────────────────────────────────────────────────────────
         [HttpPost("{idEmpresa}/admin")]
         public async Task<IActionResult> CrearAdminEmpresa(int idEmpresa, [FromBody] CrearAdminEmpresaDTO datos)
         {
             try
             {
+                // Verificar que la empresa existe y está activa
                 var empresa = await _sqlContext.Empresas.FindAsync(idEmpresa);
                 if (empresa == null || !empresa.Activo)
                     return NotFound(new { Mensaje = "Empresa no encontrada o inactiva." });
 
-                // Verificar que no exista ya un usuario con ese email
-                bool emailExiste;
-                using (var con = new SqlConnection(_config.GetConnectionString("SqlConexion")))
-                {
-                    con.Open();
-                    using var cmd = new SqlCommand("SELECT COUNT(*) FROM Usuarios WHERE email = @email", con);
-                    cmd.Parameters.AddWithValue("@email", datos.Email);
-                    emailExiste = (int)cmd.ExecuteScalar() > 0;
-                }
-                if (emailExiste)
-                    return BadRequest(new { Mensaje = $"El email '{datos.Email}' ya está registrado." });
-
-                // Crear área General para la empresa si no existe
-                bool tieneAreaGeneral = _sqlContext.Areas
-                    .Any(a => a.IdEmpresa == idEmpresa && a.EsGeneral && a.Activo);
-
-                int idAreaGeneral;
-                if (!tieneAreaGeneral)
-                {
-                    var areaGeneral = new AreaSQL
-                    {
-                        Nombre     = "General",
-                        Descripcion = "Área general de la empresa — visible para todos",
-                        EsGeneral  = true,
-                        Activo     = true,
-                        IdEmpresa  = idEmpresa
-                    };
-                    _sqlContext.Areas.Add(areaGeneral);
-                    await _sqlContext.SaveChangesAsync();
-                    idAreaGeneral = areaGeneral.Id;
-                }
-                else
-                {
-                    idAreaGeneral = _sqlContext.Areas
-                        .First(a => a.IdEmpresa == idEmpresa && a.EsGeneral && a.Activo).Id;
-                }
-
-                // Crear el admin en la empresa
                 string hash = BCrypt.Net.BCrypt.HashPassword(datos.Password);
-                using (var con = new SqlConnection(_config.GetConnectionString("SqlConexion")))
-                {
-                    con.Open();
-                    string insert = @"
-                        INSERT INTO Usuarios (id_rol, id_area, id_empresa, nombre_completo, email, password_hash)
-                        VALUES (1, @idArea, @idEmpresa, @nombre, @email, @pass)";
-                    using var cmd = new SqlCommand(insert, con);
-                    cmd.Parameters.AddWithValue("@idArea",    idAreaGeneral);
-                    cmd.Parameters.AddWithValue("@idEmpresa", idEmpresa);
-                    cmd.Parameters.AddWithValue("@nombre",    datos.NombreCompleto);
-                    cmd.Parameters.AddWithValue("@email",     datos.Email);
-                    cmd.Parameters.AddWithValue("@pass",      hash);
-                    cmd.ExecuteNonQuery();
-                }
 
-                return Ok(new
+                using var con = new SqlConnection(_config.GetConnectionString("SqlConexion"));
+                await con.OpenAsync();
+                using var tx = con.BeginTransaction();
+
+                try
                 {
-                    Mensaje  = $"Admin creado para la empresa '{empresa.Nombre}'.",
-                    Email    = datos.Email,
-                    Empresa  = empresa.Nombre
-                });
+                    // 1. Verificar email duplicado
+                    using (var cmdEmail = new SqlCommand(
+                        "SELECT COUNT(*) FROM Usuarios WHERE email = @email", con, tx))
+                    {
+                        cmdEmail.Parameters.AddWithValue("@email", datos.Email);
+                        int count = (int)await cmdEmail.ExecuteScalarAsync();
+                        if (count > 0)
+                        {
+                            tx.Rollback();
+                            return BadRequest(new { Mensaje = $"El email '{datos.Email}' ya está registrado." });
+                        }
+                    }
+
+                    // 2. Verificar si ya existe área General para esta empresa
+                    int idAreaGeneral = 0;
+                    using (var cmdArea = new SqlCommand(
+                        "SELECT id_area FROM Areas WHERE id_empresa = @idEmpresa AND es_general = 1 AND activo = 1",
+                        con, tx))
+                    {
+                        cmdArea.Parameters.AddWithValue("@idEmpresa", idEmpresa);
+                        var resultado = await cmdArea.ExecuteScalarAsync();
+                        if (resultado != null)
+                            idAreaGeneral = (int)resultado;
+                    }
+
+                    // 3. Si no existe, crear el área General dentro de la misma transacción
+                    if (idAreaGeneral == 0)
+                    {
+                        using var cmdCrearArea = new SqlCommand(@"
+                            INSERT INTO Areas (nombre, descripcion, es_general, activo, id_empresa)
+                            OUTPUT INSERTED.id_area
+                            VALUES ('General', 'Área general de la empresa — visible para todos', 1, 1, @idEmpresa)",
+                            con, tx);
+                        cmdCrearArea.Parameters.AddWithValue("@idEmpresa", idEmpresa);
+                        idAreaGeneral = (int)(await cmdCrearArea.ExecuteScalarAsync())!;
+                    }
+
+                    // 4. Insertar el admin usando el id_area recién obtenido
+                    using (var cmdUsuario = new SqlCommand(@"
+                        INSERT INTO Usuarios (id_rol, id_area, id_empresa, nombre_completo, email, password_hash)
+                        VALUES (1, @idArea, @idEmpresa, @nombre, @email, @pass)",
+                        con, tx))
+                    {
+                        cmdUsuario.Parameters.AddWithValue("@idArea",    idAreaGeneral);
+                        cmdUsuario.Parameters.AddWithValue("@idEmpresa", idEmpresa);
+                        cmdUsuario.Parameters.AddWithValue("@nombre",    datos.NombreCompleto);
+                        cmdUsuario.Parameters.AddWithValue("@email",     datos.Email);
+                        cmdUsuario.Parameters.AddWithValue("@pass",      hash);
+                        await cmdUsuario.ExecuteNonQueryAsync();
+                    }
+
+                    tx.Commit();
+
+                    return Ok(new
+                    {
+                        Mensaje  = $"Admin creado para la empresa '{empresa.Nombre}'.",
+                        Email    = datos.Email,
+                        Empresa  = empresa.Nombre
+                    });
+                }
+                catch
+                {
+                    tx.Rollback();
+                    throw;
+                }
             }
             catch (Exception ex)
             {
                 return StatusCode(500, new { Error = "Error al crear admin.", Detalle = ex.Message });
             }
         }
-    }
-
-    // ── DTOs locales del controlador ────────────────────────────────────
-    public class CrearEmpresaDTO
-    {
-        public string  Nombre { get; set; } = string.Empty;
-        public string? Rfc    { get; set; }
-    }
-
-    public class CrearAdminEmpresaDTO
-    {
-        public string NombreCompleto { get; set; } = string.Empty;
-        public string Email          { get; set; } = string.Empty;
-        public string Password       { get; set; } = string.Empty;
     }
 }

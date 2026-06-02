@@ -18,23 +18,18 @@ namespace QualityDocAPI.Controllers
             _sqlContext = sqlContext;
         }
 
-        // ── Helpers ──────────────────────────────────────────────────────
         private int? GetIdEmpresaToken()
         {
             var val = User.FindFirst("id_empresa")?.Value;
             return int.TryParse(val, out int e) && e != 0 ? e : (int?)null;
         }
 
-        // ─────────────────────────────────────────────────────────────────
-        // GET: api/Areas — lista áreas ACTIVAS de la empresa del admin
-        // ─────────────────────────────────────────────────────────────────
         [HttpGet]
         public IActionResult ObtenerAreas()
         {
             try
             {
                 var idEmpresa = GetIdEmpresaToken();
-
                 var areas = _sqlContext.Areas
                     .Where(a => a.Activo && a.IdEmpresa == idEmpresa)
                     .OrderBy(a => a.Nombre)
@@ -47,7 +42,6 @@ namespace QualityDocAPI.Controllers
                         a.FechaCreacion
                     })
                     .ToList();
-
                 return Ok(new { Total = areas.Count, Areas = areas });
             }
             catch (Exception ex)
@@ -56,16 +50,12 @@ namespace QualityDocAPI.Controllers
             }
         }
 
-        // ─────────────────────────────────────────────────────────────────
-        // GET: api/Areas/inactivas
-        // ─────────────────────────────────────────────────────────────────
         [HttpGet("inactivas")]
         public IActionResult ObtenerAreasInactivas()
         {
             try
             {
                 var idEmpresa = GetIdEmpresaToken();
-
                 var areas = _sqlContext.Areas
                     .Where(a => !a.Activo && a.IdEmpresa == idEmpresa)
                     .OrderBy(a => a.Nombre)
@@ -78,7 +68,6 @@ namespace QualityDocAPI.Controllers
                         a.FechaCreacion
                     })
                     .ToList();
-
                 return Ok(new { Total = areas.Count, Areas = areas });
             }
             catch (Exception ex)
@@ -87,9 +76,6 @@ namespace QualityDocAPI.Controllers
             }
         }
 
-        // ─────────────────────────────────────────────────────────────────
-        // POST: api/Areas — crear área dentro de la empresa del admin
-        // ─────────────────────────────────────────────────────────────────
         [HttpPost]
         public async Task<IActionResult> CrearArea([FromBody] CrearAreaDTO datos)
         {
@@ -139,16 +125,12 @@ namespace QualityDocAPI.Controllers
             }
         }
 
-        // ─────────────────────────────────────────────────────────────────
-        // PUT: api/Areas/{id}
-        // ─────────────────────────────────────────────────────────────────
         [HttpPut("{id}")]
         public async Task<IActionResult> ActualizarArea(int id, [FromBody] CrearAreaDTO datos)
         {
             try
             {
                 var idEmpresa = GetIdEmpresaToken();
-
                 var area = await _sqlContext.Areas.FindAsync(id);
                 if (area == null || !area.Activo || area.IdEmpresa != idEmpresa)
                     return NotFound(new { Mensaje = "Área no encontrada." });
@@ -163,7 +145,6 @@ namespace QualityDocAPI.Controllers
                 area.EsGeneral   = datos.EsGeneral;
 
                 await _sqlContext.SaveChangesAsync();
-
                 return Ok(new { Mensaje = "Área actualizada correctamente.", IdArea = area.Id });
             }
             catch (Exception ex)
@@ -172,16 +153,12 @@ namespace QualityDocAPI.Controllers
             }
         }
 
-        // ─────────────────────────────────────────────────────────────────
-        // PUT: api/Areas/{id}/reactivar
-        // ─────────────────────────────────────────────────────────────────
         [HttpPut("{id}/reactivar")]
         public async Task<IActionResult> ReactivarArea(int id)
         {
             try
             {
                 var idEmpresa = GetIdEmpresaToken();
-
                 var area = await _sqlContext.Areas.FindAsync(id);
                 if (area == null || area.IdEmpresa != idEmpresa)
                     return NotFound(new { Mensaje = $"No existe un área con ID {id} en tu empresa." });
@@ -211,16 +188,12 @@ namespace QualityDocAPI.Controllers
             }
         }
 
-        // ─────────────────────────────────────────────────────────────────
-        // DELETE: api/Areas/{id} — soft delete
-        // ─────────────────────────────────────────────────────────────────
         [HttpDelete("{id}")]
         public async Task<IActionResult> DesactivarArea(int id)
         {
             try
             {
                 var idEmpresa = GetIdEmpresaToken();
-
                 var area = await _sqlContext.Areas.FindAsync(id);
                 if (area == null || !area.Activo || area.IdEmpresa != idEmpresa)
                     return NotFound(new { Mensaje = "Área no encontrada." });
@@ -230,7 +203,6 @@ namespace QualityDocAPI.Controllers
 
                 area.Activo = false;
                 await _sqlContext.SaveChangesAsync();
-
                 return Ok(new { Mensaje = $"Área '{area.Nombre}' desactivada." });
             }
             catch (Exception ex)

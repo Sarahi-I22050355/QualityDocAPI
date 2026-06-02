@@ -2,12 +2,13 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Data.SqlClient;
 using QualityDocAPI.DTOs;
+using System.Security.Claims;
 
 namespace QualityDocAPI.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
-    [Authorize(Policy = "SoloAdmin")]  // Los logs son exclusivos del Admin
+    [Authorize(Policy = "SoloAdmin")]
     public class LogsController : ControllerBase
     {
         private readonly IConfiguration _config;
@@ -17,9 +18,14 @@ namespace QualityDocAPI.Controllers
             _config = config;
         }
 
+        // ── Helper: obtiene id_empresa del token ──────────────────────
+        private int? GetIdEmpresaToken()
+        {
+            var val = User.FindFirst("id_empresa")?.Value;
+            return int.TryParse(val, out int e) && e != 0 ? e : (int?)null;
+        }
+
         // GET: api/Logs
-        // Query params opcionales: idUsuario, accion, desde, hasta, pagina, tamano
-        // Ejemplo: GET /api/Logs?accion=SUBIO&desde=2025-01-01&pagina=1&tamano=20
         [HttpGet]
         public IActionResult ObtenerLogs(
             [FromQuery] int?      idUsuario = null,
@@ -32,10 +38,19 @@ namespace QualityDocAPI.Controllers
             if (pagina < 1) pagina = 1;
             if (tamano < 1 || tamano > 200) tamano = 50;
 
+            var idEmpresa = GetIdEmpresaToken();
+
             try
             {
                 var condiciones = new List<string> { "1=1" };
                 var parametros  = new List<SqlParameter>();
+
+                // Filtro obligatorio por empresa — cada admin solo ve su empresa
+                if (idEmpresa.HasValue)
+                {
+                    condiciones.Add("u.id_empresa = @idEmpresa");
+                    parametros.Add(new SqlParameter("@idEmpresa", idEmpresa.Value));
+                }
 
                 if (idUsuario.HasValue)
                 {
@@ -74,9 +89,9 @@ namespace QualityDocAPI.Controllers
                         l.ip_address,
                         l.fecha_accion
                     FROM  LogAccesos  l
-                    INNER JOIN Usuarios   u  ON l.id_usuario   = u.id_usuario
-                    LEFT  JOIN Areas      ar ON u.id_area       = ar.id_area
-                    LEFT  JOIN Documentos d  ON l.id_documento  = d.id_documento
+                    INNER JOIN Usuarios   u  ON l.id_usuario  = u.id_usuario
+                    LEFT  JOIN Areas      ar ON u.id_area     = ar.id_area
+                    LEFT  JOIN Documentos d  ON l.id_documento = d.id_documento
                     WHERE {where}
                     ORDER BY l.fecha_accion DESC
                     OFFSET {offset} ROWS FETCH NEXT {tamano} ROWS ONLY";
@@ -87,8 +102,8 @@ namespace QualityDocAPI.Controllers
                     INNER JOIN Usuarios u ON l.id_usuario = u.id_usuario
                     WHERE {where}";
 
-                var  logs  = new List<LogDTO>();
-                int  total = 0;
+                var logs  = new List<LogDTO>();
+                int total = 0;
 
                 using (var con = new SqlConnection(_config.GetConnectionString("SqlConexion")))
                 {
@@ -144,33 +159,45 @@ namespace QualityDocAPI.Controllers
         }
 
         // GET: api/Logs/resumen
-        // Dashboard del Admin: conteo de acciones en los últimos 30 días
+        // Conteo de acciones en los últimos 30 días — filtrado por empresa
         [HttpGet("resumen")]
         public IActionResult ObtenerResumen()
         {
+            var idEmpresa = GetIdEmpresaToken();
+
             try
             {
                 var resumen = new List<object>();
                 int total   = 0;
 
-                string sql = @"
-                    SELECT accion, COUNT(*) AS cantidad
-                    FROM   LogAccesos
-                    WHERE  fecha_accion >= DATEADD(DAY, -30, GETDATE())
-                    GROUP  BY accion
+                string whereEmpresa = idEmpresa.HasValue
+                    ? "INNER JOIN Usuarios u ON l.id_usuario = u.id_usuario AND u.id_empresa = @idEmpresa"
+                    : "";
+
+                string sql = $@"
+                    SELECT l.accion, COUNT(*) AS cantidad
+                    FROM   LogAccesos l
+                    {whereEmpresa}
+                    WHERE  l.fecha_accion >= DATEADD(DAY, -30, GETDATE())
+                    GROUP  BY l.accion
                     ORDER  BY cantidad DESC";
 
                 using (var con = new SqlConnection(_config.GetConnectionString("SqlConexion")))
                 {
                     con.Open();
                     using (var cmd = new SqlCommand(sql, con))
-                    using (var rd  = cmd.ExecuteReader())
                     {
-                        while (rd.Read())
+                        if (idEmpresa.HasValue)
+                            cmd.Parameters.AddWithValue("@idEmpresa", idEmpresa.Value);
+
+                        using (var rd = cmd.ExecuteReader())
                         {
-                            int cantidad = (int)rd["cantidad"];
-                            total += cantidad;
-                            resumen.Add(new { Accion = rd["accion"].ToString(), Cantidad = cantidad });
+                            while (rd.Read())
+                            {
+                                int cantidad = (int)rd["cantidad"];
+                                total += cantidad;
+                                resumen.Add(new { Accion = rd["accion"].ToString(), Cantidad = cantidad });
+                            }
                         }
                     }
                 }

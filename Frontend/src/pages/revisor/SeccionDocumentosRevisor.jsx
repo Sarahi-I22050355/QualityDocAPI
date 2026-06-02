@@ -9,17 +9,38 @@ function fmtFecha(iso) {
     + " " + d.toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" });
 }
 
-export default function SeccionDocumentosRevisor() {
-  const [pendientes, setPendientes]   = useState([]);
-  const [cargando,   setCargando]     = useState(true);
-  const [error,      setError]        = useState("");
-  const [modalDoc,   setModalDoc]     = useState(null);
-  const [decision,   setDecision]     = useState("Aprobado");
-  const [comentario, setComentario]   = useState("");
-  const [enviando,   setEnviando]     = useState(false);
-  const [mensaje,    setMensaje]      = useState("");
+function BarraFirmas({ requeridas, obtenidas }) {
+  if (!requeridas || requeridas === 0) return null;
+  const pct = Math.round((obtenidas / requeridas) * 100);
+  return (
+    <div style={{ marginTop: "6px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.72rem", color: "#6b7280", marginBottom: "3px" }}>
+        <span>Firmas</span>
+        <span style={{ fontWeight: 600, color: obtenidas === requeridas ? "#4ade80" : "#fbbf24" }}>
+          {obtenidas} / {requeridas}
+        </span>
+      </div>
+      <div style={{ height: "4px", background: "#2a3347", borderRadius: "99px", overflow: "hidden" }}>
+        <div style={{
+          height: "4px", width: `${pct}%`,
+          background: obtenidas === requeridas ? "#4ade80" : "#fbbf24",
+          borderRadius: "99px", transition: "width 0.3s"
+        }} />
+      </div>
+    </div>
+  );
+}
 
-  // ── Cargar pendientes ──────────────────────────────────────────
+export default function SeccionDocumentosRevisor() {
+  const [pendientes, setPendientes] = useState([]);
+  const [cargando,   setCargando]   = useState(true);
+  const [error,      setError]      = useState("");
+  const [modalDoc,   setModalDoc]   = useState(null);
+  const [decision,   setDecision]   = useState("Aprobado");
+  const [comentario, setComentario] = useState("");
+  const [enviando,   setEnviando]   = useState(false);
+  const [mensaje,    setMensaje]    = useState("");
+
   async function cargarPendientes() {
     setCargando(true);
     setError("");
@@ -35,37 +56,32 @@ export default function SeccionDocumentosRevisor() {
 
   useEffect(() => { cargarPendientes(); }, []);
 
-  // ── Obtener idFlujo del documento (el último pendiente) ────────
-  async function obtenerIdFlujo(idDocumento) {
-    const res = await api.get(`/Documentos/${idDocumento}/flujo`);
-    const historial = res.data.historial || [];
-    const pendiente = historial.find(f => f.decision === "Pendiente");
-    return pendiente?.idFlujo ?? null;
-  }
-
-  // ── Resolver aprobación ────────────────────────────────────────
   async function resolver() {
     if (!modalDoc) return;
     setEnviando(true);
     setMensaje("");
     try {
-      const doc = modalDoc.documento ?? modalDoc.Documento;
-      const idFlujo = await obtenerIdFlujo(doc?.sqlId ?? doc?.SqlId);
-      if (!idFlujo) { setMensaje("⚠️ No se encontró la solicitud pendiente."); setEnviando(false); return; }
+      // El backend devuelve idFlujoParaResolver directamente — sin roundtrip extra
+      const idFlujo = modalDoc.idFlujoParaResolver;
+      if (!idFlujo) {
+        setMensaje("⚠️ No se encontró la solicitud pendiente para tu área.");
+        setEnviando(false);
+        return;
+      }
 
-      await api.put(`/Documentos/resolver-aprobacion/${idFlujo}`, {
+      const res = await api.put(`/Documentos/resolver-aprobacion/${idFlujo}`, {
         Decision: decision,
         Comentarios: comentario,
       });
 
-      setMensaje(`✅ Documento ${decision.toLowerCase()} correctamente.`);
+      setMensaje(`✅ ${res.data?.Mensaje || `Documento ${decision.toLowerCase()} correctamente.`}`);
       setTimeout(() => {
         setModalDoc(null);
         setDecision("Aprobado");
         setComentario("");
         setMensaje("");
         cargarPendientes();
-      }, 1500);
+      }, 1800);
     } catch (e) {
       setMensaje("❌ " + (e.response?.data?.Mensaje || "Error al resolver la aprobación."));
     } finally {
@@ -73,13 +89,12 @@ export default function SeccionDocumentosRevisor() {
     }
   }
 
-  // ── Descargar documento ────────────────────────────────────────
   async function descargar(idDocumento) {
     try {
       const res = await api.get(`/Documentos/descargar/${idDocumento}`, { responseType: "blob" });
       const url  = URL.createObjectURL(res.data);
       const link = document.createElement("a");
-      link.href  = url;
+      link.href     = url;
       link.download = `documento_${idDocumento}.pdf`;
       link.click();
       URL.revokeObjectURL(url);
@@ -88,7 +103,6 @@ export default function SeccionDocumentosRevisor() {
     }
   }
 
-  // ── Render ─────────────────────────────────────────────────────
   if (cargando) return <p className="cargando-txt">Cargando pendientes…</p>;
   if (error)    return <div className="alerta-error">{error}</div>;
 
@@ -111,6 +125,7 @@ export default function SeccionDocumentosRevisor() {
                   <th>Título</th>
                   <th>Área</th>
                   <th>Ver.</th>
+                  <th>Firmas</th>
                   <th>Acciones</th>
                 </tr>
               </thead>
@@ -122,17 +137,21 @@ export default function SeccionDocumentosRevisor() {
                     <tr key={i}>
                       <td>
                         <div style={{ fontWeight: 500 }}>{doc?.titulo ?? doc?.Titulo ?? "Sin título"}</div>
-                        <div style={{ fontSize: '0.8rem', color: '#9ca3af' }}>{doc?.categoria ?? doc?.Categoria ?? "—"}</div>
-                        <div style={{ fontSize: '0.75rem', color: '#6b7280', marginTop: '4px' }}>
-                          {(doc?.subidoPor ?? doc?.SubidoPor) && <span>Subido por: <strong>{doc?.subidoPor ?? doc?.SubidoPor}</strong></span>}
-                          {(doc?.fechaSubida ?? doc?.FechaSubida) && <span> · {fmtFecha(doc?.fechaSubida ?? doc?.FechaSubida)}</span>}
+                        <div style={{ fontSize: "0.8rem", color: "#9ca3af" }}>{doc?.categoria ?? doc?.Categoria ?? "—"}</div>
+                        <div style={{ fontSize: "0.75rem", color: "#6b7280", marginTop: "4px" }}>
+                          {(doc?.subidoPor ?? doc?.SubidoPor) && (
+                            <span>Subido por: <strong>{doc?.subidoPor ?? doc?.SubidoPor}</strong></span>
+                          )}
+                          {(doc?.fechaSubida ?? doc?.FechaSubida) && (
+                            <span> · {fmtFecha(doc?.fechaSubida ?? doc?.FechaSubida)}</span>
+                          )}
                         </div>
                         {doc?.etiquetas?.length > 0 && (
-                          <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginTop: '4px' }}>
+                          <div style={{ display: "flex", gap: "4px", flexWrap: "wrap", marginTop: "4px" }}>
                             {doc.etiquetas.map((e, j) => (
                               <span key={j} style={{
-                                background: '#eff6ff', color: '#1d4ed8', fontSize: '0.68rem',
-                                padding: '1px 6px', borderRadius: '4px', border: '1px solid #bfdbfe'
+                                background: "#eff6ff", color: "#1d4ed8", fontSize: "0.68rem",
+                                padding: "1px 6px", borderRadius: "4px", border: "1px solid #bfdbfe"
                               }}>{e}</span>
                             ))}
                           </div>
@@ -140,12 +159,20 @@ export default function SeccionDocumentosRevisor() {
                       </td>
                       <td>{doc?.area ?? doc?.Area ?? "—"}</td>
                       <td>v{item.version ?? item.Version ?? "—"}</td>
+                      <td style={{ minWidth: "110px" }}>
+                        <BarraFirmas requeridas={item.firmasReq} obtenidas={item.firmasOk} />
+                      </td>
                       <td>
-                        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                        <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
                           <button className="btn-secundario" onClick={() => descargar(id)}>
                             Descargar
                           </button>
-                          <button className="btn-primario" onClick={() => setModalDoc(item)}>
+                          <button className="btn-primario" onClick={() => {
+                            setModalDoc(item);
+                            setDecision("Aprobado");
+                            setComentario("");
+                            setMensaje("");
+                          }}>
                             Revisar
                           </button>
                         </div>
@@ -162,11 +189,26 @@ export default function SeccionDocumentosRevisor() {
       {/* ── Modal de resolución ── */}
       {modalDoc && (
         <div className="modal-fondo" onClick={() => setModalDoc(null)}>
-          <div className="modal-card" style={{ maxWidth: '440px' }} onClick={e => e.stopPropagation()}>
+          <div className="modal-card" style={{ maxWidth: "440px" }} onClick={e => e.stopPropagation()}>
             <h3 className="modal-titulo">Resolver aprobación</h3>
-            <p style={{ fontSize: '0.85rem', color: '#6b7280', marginBottom: '1rem' }}>
-              {(modalDoc.documento ?? modalDoc.Documento)?.titulo ?? (modalDoc.documento ?? modalDoc.Documento)?.Titulo ?? "Documento"}
+            <p style={{ fontSize: "0.85rem", color: "#6b7280", marginBottom: "0.5rem" }}>
+              {(modalDoc.documento ?? modalDoc.Documento)?.titulo ?? "Documento"}
             </p>
+
+            {/* Progreso de firmas en el modal */}
+            {modalDoc.firmasReq > 0 && (
+              <div style={{
+                background: "rgba(79,142,247,0.08)", border: "1px solid rgba(79,142,247,0.2)",
+                borderRadius: "8px", padding: "10px 12px", marginBottom: "1rem"
+              }}>
+                <BarraFirmas requeridas={modalDoc.firmasReq} obtenidas={modalDoc.firmasOk} />
+                <p style={{ fontSize: "0.75rem", color: "#6b7280", marginTop: "6px" }}>
+                  {modalDoc.firmasReq - modalDoc.firmasOk === 1
+                    ? "Esta es la última firma requerida."
+                    : `Faltarán ${modalDoc.firmasReq - modalDoc.firmasOk - 1} firma(s) más después de la tuya.`}
+                </p>
+              </div>
+            )}
 
             <div className="form-grid una-col">
               <div className="campo-form">
@@ -177,18 +219,23 @@ export default function SeccionDocumentosRevisor() {
                 </select>
               </div>
               <div className="campo-form">
-                <label>Comentarios {decision === 'Rechazado' ? '*' : '(opcional)'}</label>
+                <label>Comentarios {decision === "Rechazado" ? "*" : "(opcional)"}</label>
                 <textarea
                   rows={4}
                   placeholder="Escribe observaciones o motivo de rechazo…"
                   value={comentario}
                   onChange={e => setComentario(e.target.value)}
-                  required={decision === 'Rechazado'}
+                  required={decision === "Rechazado"}
                 />
               </div>
             </div>
 
-            {mensaje && <div className={mensaje.startsWith("✅") ? "alerta-ok" : "alerta-error"} style={{ marginTop: '1rem' }}>{mensaje}</div>}
+            {mensaje && (
+              <div className={mensaje.startsWith("✅") ? "alerta-ok" : "alerta-error"}
+                style={{ marginTop: "1rem" }}>
+                {mensaje}
+              </div>
+            )}
 
             <div className="modal-acciones">
               <button className="btn-secundario" onClick={() => setModalDoc(null)} disabled={enviando}>

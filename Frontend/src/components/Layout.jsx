@@ -34,8 +34,8 @@ export default function Layout({ titulo, secciones, seccionActiva, setSeccion, c
         <div className="header-der">
           <span className="header-usuario">
             {usuario?.nombre}
-            <small>{usuario?.area}</small>
-          </span>
+            <small>{usuario?.area} · {usuario?.nombre_empresa}</small>
+          </span>          
           <button className="btn-logout" onClick={handleLogout}>
             Cerrar sesión
           </button>
