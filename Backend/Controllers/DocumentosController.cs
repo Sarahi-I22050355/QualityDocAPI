@@ -292,13 +292,15 @@ namespace QualityDocAPI.Controllers
                 var busqueda      = palabraClave.ToLower();
                 var builder       = Builders<DocumentoMongo>.Filter;
 
+                var regex = new MongoDB.Bson.BsonRegularExpression(busqueda, "i");
                 var filtroTexto = builder.Or(
-                    builder.AnyEq(d => d.Etiquetas,  busqueda),
-                    builder.Regex(d => d.Titulo,      new MongoDB.Bson.BsonRegularExpression(busqueda, "i")),
-                    builder.Regex(d => d.Descripcion, new MongoDB.Bson.BsonRegularExpression(busqueda, "i")),
-                    builder.Regex(d => d.Autor,       new MongoDB.Bson.BsonRegularExpression(busqueda, "i"))
+                    builder.Regex(d => d.Titulo,      regex),
+                    builder.Regex(d => d.Descripcion, regex),
+                    builder.Regex(d => d.Autor,       regex),
+                    builder.ElemMatch<string>(d => d.Etiquetas,
+                        Builders<string>.Filter.Regex("", regex))
                 );
-
+                
                 FilterDefinition<DocumentoMongo> filtroFinal;
 
                 if (esSuperAdmin)
