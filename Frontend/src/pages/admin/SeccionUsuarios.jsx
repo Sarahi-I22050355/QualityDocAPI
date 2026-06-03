@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import api from '../../api/axios'
 import '../../components/Seccion.css'
+import { swalExito, swalError } from '../../utils/swal'
 
 export default function SeccionUsuarios() {
   const [usuarios, setUsuarios]   = useState([])
@@ -35,12 +36,10 @@ export default function SeccionUsuarios() {
   const handleEstado = async (id, activoActual) => {
     try {
       await api.put(`/Usuarios/${id}/estado`, { Activo: !activoActual })
-      setOk(`Usuario ${activoActual ? 'desactivado' : 'activado'} correctamente.`)
+      swalExito(`Usuario ${activoActual ? 'desactivado' : 'activado'} correctamente.`)
       cargarDatos()
-      setTimeout(() => setOk(''), 3000)
     } catch (e) {
-      setError(e.response?.data?.mensaje || 'Error al cambiar estado.')
-      setTimeout(() => setError(''), 3000)
+      swalError(e.response?.data?.mensaje || 'Error al cambiar estado.')
     }
   }
 
@@ -54,11 +53,11 @@ export default function SeccionUsuarios() {
         IdRol:  Number(form.IdRol),
         IdArea: Number(form.IdArea),
       })
-      setOk('Usuario creado exitosamente.')
+      swalExito('Usuario creado exitosamente.')
       setModal(false)
       setForm({ NombreCompleto: '', Email: '', Password: '', IdRol: 2, IdArea: '' })
       cargarDatos()
-      setTimeout(() => setOk(''), 3000)
+      setTimeout(() => { }, 0) // cleanup noop
     } catch (e) {
       setError(e.response?.data?.mensaje || 'Error al crear usuario.')
     } finally {
@@ -79,7 +78,7 @@ export default function SeccionUsuarios() {
       <div className="seccion-header">
         <h2 className="seccion-titulo">Usuarios</h2>
         <button className="btn-primario" onClick={() => setModal(true)}>
-          + Nuevo usuario
+          <i className="bi bi-person-plus-fill"></i> Nuevo usuario
         </button>
       </div>
 
@@ -117,12 +116,14 @@ export default function SeccionUsuarios() {
                         : <span className="badge badge-rojo">Inactivo</span>}
                     </td>
                     <td>
-                      <button
-                        className={u.activo ? 'btn-peligro' : 'btn-exito'}
-                        onClick={() => handleEstado(u.idUsuario, u.activo)}
-                      >
-                        {u.activo ? 'Desactivar' : 'Activar'}
-                      </button>
+                        <button
+                          className={u.activo ? 'btn-peligro' : 'btn-exito'}
+                          onClick={() => handleEstado(u.idUsuario, u.activo)}
+                        >
+                          {u.activo
+                            ? <><i className="bi bi-person-x"></i> Desactivar</>
+                            : <><i className="bi bi-person-check"></i> Activar</>}
+                        </button>
                     </td>
                   </tr>
                 ))}
@@ -134,79 +135,88 @@ export default function SeccionUsuarios() {
 
       {/* ── Modal crear usuario ─────────────────────────────────────── */}
       {modalAbierto && (
-        <div className="modal-fondo" onClick={() => setModal(false)}>
-          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
-            <h3 className="modal-titulo">Nuevo usuario</h3>
-
-            <form onSubmit={handleCrear}>
-              <div className="form-grid">
-                <div className="campo-form">
-                  <label>Nombre completo</label>
-                  <input
-                    required
-                    value={form.NombreCompleto}
-                    onChange={(e) => setForm({ ...form, NombreCompleto: e.target.value })}
-                    placeholder="Ej. Ana García"
-                  />
-                </div>
-                <div className="campo-form">
-                  <label>Correo electrónico</label>
-                  <input
-                    type="email"
-                    required
-                    value={form.Email}
-                    onChange={(e) => setForm({ ...form, Email: e.target.value })}
-                    placeholder="ana@empresa.com"
-                  />
-                </div>
-                <div className="campo-form">
-                  <label>Contraseña</label>
-                  <input
-                    type="password"
-                    required
-                    value={form.Password}
-                    onChange={(e) => setForm({ ...form, Password: e.target.value })}
-                    placeholder="Mín. 12 caracteres, 1 mayúscula, 1 especial"
-                  />
-                </div>
-                <div className="campo-form">
-                  <label>Rol</label>
-                  <select
-                    value={form.IdRol}
-                    onChange={(e) => setForm({ ...form, IdRol: e.target.value })}
-                  >
-                    <option value={2}>Supervisor</option>
-                    <option value={3}>Operario</option>
-                    <option value={4}>Revisor</option>
-                    <option value={1}>Administrador</option>
-                  </select>
-                </div>
-                <div className="campo-form">
-                  <label>Área</label>
-                  <select
-                    required
-                    value={form.IdArea}
-                    onChange={(e) => setForm({ ...form, IdArea: e.target.value })}
-                  >
-                    <option value="">-- Selecciona un área --</option>
-                    {areas.map((a) => (
-                      <option key={a.id} value={a.id}>{a.nombre}</option>
-                    ))}
-                  </select>
-                </div>
+        <div className="modal fade show" style={{ display: 'block', backgroundColor: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(4px)' }} tabIndex="-1" onClick={() => setModal(false)}>
+          <div className="modal-dialog modal-dialog-centered" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-content">
+              <div className="modal-header">
+                <h5 className="modal-title">
+                  <i className="bi bi-person-plus-fill" style={{ marginRight: '8px', color: 'var(--accent)' }}></i>
+                  Nuevo usuario
+                </h5>
+                <button type="button" className="btn-close" onClick={() => setModal(false)} aria-label="Cerrar"></button>
               </div>
+              <form onSubmit={handleCrear}>
+                <div className="modal-body">
+                  <div className="form-grid">
+                    <div className="campo-form">
+                      <label>Nombre completo</label>
+                      <input
+                        required
+                        value={form.NombreCompleto}
+                        onChange={(e) => setForm({ ...form, NombreCompleto: e.target.value })}
+                        placeholder="Ej. Ana García"
+                      />
+                    </div>
+                    <div className="campo-form">
+                      <label>Correo electrónico</label>
+                      <input
+                        type="email"
+                        required
+                        value={form.Email}
+                        onChange={(e) => setForm({ ...form, Email: e.target.value })}
+                        placeholder="ana@empresa.com"
+                      />
+                    </div>
+                    <div className="campo-form">
+                      <label>Contraseña</label>
+                      <input
+                        type="password"
+                        required
+                        value={form.Password}
+                        onChange={(e) => setForm({ ...form, Password: e.target.value })}
+                        placeholder="Mín. 12 caracteres, 1 mayúscula, 1 especial"
+                      />
+                    </div>
+                    <div className="campo-form">
+                      <label>Rol</label>
+                      <select
+                        value={form.IdRol}
+                        onChange={(e) => setForm({ ...form, IdRol: e.target.value })}
+                      >
+                        <option value={2}>Supervisor</option>
+                        <option value={3}>Operario</option>
+                        <option value={4}>Revisor</option>
+                        <option value={1}>Administrador</option>
+                      </select>
+                    </div>
+                    <div className="campo-form">
+                      <label>Área</label>
+                      <select
+                        required
+                        value={form.IdArea}
+                        onChange={(e) => setForm({ ...form, IdArea: e.target.value })}
+                      >
+                        <option value="">-- Selecciona un área --</option>
+                        {areas.map((a) => (
+                          <option key={a.id} value={a.id}>{a.nombre}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
 
-              {error && <div className="alerta-error" style={{ marginTop: '1rem' }}>{error}</div>}
+                  {error && <div className="alerta-error" style={{ marginTop: '1rem' }}>{error}</div>}
+                </div>
 
-              <div className="modal-acciones">
-                <button type="button" className="btn-secundario" onClick={() => setModal(false)}>
-                  Cancelar
-                </button>
-                <button type="submit" className="btn-primario" disabled={enviando}>
-                  {enviando ? 'Creando...' : 'Crear usuario'}
-                </button>
-              </div>
-            </form>
+                <div className="modal-footer">
+                  <button type="button" className="btn-secundario" onClick={() => setModal(false)}>
+                    Cancelar
+                  </button>
+                  <button type="submit" className="btn-primario" disabled={enviando}>
+                    {enviando ? 'Creando...' : 'Crear usuario'}
+                  </button>
+                </div>
+              </form>
+            </div>
           </div>
         </div>
       )}

@@ -27,22 +27,210 @@
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+html { scroll-behavior: smooth; }
+
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
-  font-size: 16px;
-  line-height: 1.5;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 15px;
+  line-height: 1.6;
   color: var(--text-primary);
   background-color: var(--bg-base);
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 a { color: inherit; text-decoration: none; }
 input, button, select, textarea { font-family: inherit; font-size: inherit; }
 
-::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: var(--bg-sidebar); }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 99px; }
-::-webkit-scrollbar-thumb:hover { background: var(--text-tertiary); }
+::-webkit-scrollbar-thumb:hover { background: var(--accent); transition: background 0.2s; }
+
+/* ═══════════════════════════════════════════════════════════════
+   BOOTSTRAP MODAL — Override dark theme
+   ═══════════════════════════════════════════════════════════════ */
+.modal-content {
+  background: var(--bg-card) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: var(--radius-lg) !important;
+  color: var(--text-primary) !important;
+  box-shadow: var(--shadow-lg) !important;
+}
+
+.modal-header {
+  background: rgba(255,255,255,0.03) !important;
+  border-bottom: 1px solid var(--border) !important;
+  padding: 1.1rem 1.5rem !important;
+}
+
+.modal-header .modal-title {
+  font-size: 1rem !important;
+  font-weight: 700 !important;
+  color: var(--text-primary) !important;
+  letter-spacing: -0.2px !important;
+}
+
+.modal-header .btn-close {
+  filter: invert(1) grayscale(1) !important;
+  opacity: 0.5 !important;
+  transition: opacity 0.15s !important;
+}
+.modal-header .btn-close:hover { opacity: 1 !important; }
+
+.modal-body {
+  padding: 1.5rem !important;
+}
+
+.modal-footer {
+  background: rgba(255,255,255,0.02) !important;
+  border-top: 1px solid var(--border-light) !important;
+  padding: 1rem 1.5rem !important;
+  gap: 0.5rem !important;
+}
+
+.modal-backdrop { background: rgba(0,0,0,0.75) !important; }
+.modal-backdrop.show { opacity: 1 !important; }
+
+/* Offcanvas dark */
+.offcanvas {
+  background: var(--bg-card) !important;
+  border-color: var(--border) !important;
+}
+.offcanvas-header {
+  border-bottom: 1px solid var(--border) !important;
+}
+.offcanvas-title {
+  color: var(--text-primary) !important;
+  font-weight: 700 !important;
+}
+.offcanvas-header .btn-close {
+  filter: invert(1) grayscale(1) !important;
+  opacity: 0.5 !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   SWEETALERT2 — Dark theme override
+   ═══════════════════════════════════════════════════════════════ */
+.swal2-popup {
+  background: var(--bg-card) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: var(--radius-lg) !important;
+  color: var(--text-primary) !important;
+  box-shadow: var(--shadow-lg) !important;
+  font-family: 'Inter', sans-serif !important;
+}
+
+.swal2-title {
+  color: var(--text-primary) !important;
+  font-size: 1.15rem !important;
+  font-weight: 700 !important;
+}
+
+.swal2-html-container {
+  color: var(--text-secondary) !important;
+  font-size: 0.9rem !important;
+}
+
+.swal2-confirm {
+  background: linear-gradient(135deg, #4f8ef7 0%, #6fa3ff 100%) !important;
+  border: none !important;
+  font-weight: 600 !important;
+  font-family: 'Inter', sans-serif !important;
+  box-shadow: 0 4px 14px rgba(79,142,247,0.35) !important;
+  border-radius: var(--radius-md) !important;
+  padding: 0.55rem 1.4rem !important;
+  transition: opacity 0.15s, transform 0.1s !important;
+}
+.swal2-confirm:hover { opacity: 0.9 !important; transform: translateY(-1px) !important; }
+
+.swal2-deny {
+  background: rgba(239,68,68,0.15) !important;
+  border: 1px solid rgba(239,68,68,0.35) !important;
+  color: #f87171 !important;
+  font-weight: 600 !important;
+  font-family: 'Inter', sans-serif !important;
+  border-radius: var(--radius-md) !important;
+  padding: 0.55rem 1.4rem !important;
+}
+.swal2-deny:hover { background: rgba(239,68,68,0.25) !important; border-color: #f87171 !important; }
+
+.swal2-cancel {
+  background: rgba(255,255,255,0.06) !important;
+  border: 1px solid var(--border) !important;
+  color: var(--text-secondary) !important;
+  font-family: 'Inter', sans-serif !important;
+  border-radius: var(--radius-md) !important;
+  padding: 0.55rem 1.4rem !important;
+}
+.swal2-cancel:hover { background: rgba(255,255,255,0.1) !important; color: var(--text-primary) !important; }
+
+.swal2-icon.swal2-warning { border-color: #fbbf24 !important; color: #fbbf24 !important; }
+.swal2-icon.swal2-success { border-color: #4ade80 !important; color: #4ade80 !important; }
+.swal2-icon.swal2-error   { border-color: #f87171 !important; color: #f87171 !important; }
+.swal2-icon.swal2-info    { border-color: var(--accent) !important; color: var(--accent) !important; }
+
+.swal2-success-ring { border-color: rgba(74,222,128,0.3) !important; }
+.swal2-success [class^=swal2-success-line] { background: #4ade80 !important; }
+
+.swal2-loader { border-color: var(--accent) transparent var(--accent) transparent !important; }
+
+/* ═══════════════════════════════════════════════════════════════
+   SPINNER DE CARGA — utilidad
+   ═══════════════════════════════════════════════════════════════ */
+@keyframes qd-spin {
+  to { transform: rotate(360deg); }
+}
+.qd-spinner {
+  display: inline-block;
+  width: 18px; height: 18px;
+  border: 2px solid rgba(79,142,247,0.25);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: qd-spin 0.7s linear infinite;
+  vertical-align: middle;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   BOOTSTRAP FORM CONTROLS — dark override
+   ═══════════════════════════════════════════════════════════════ */
+.form-control, .form-select {
+  background-color: var(--bg-input) !important;
+  border: 1px solid var(--border) !important;
+  color: var(--text-primary) !important;
+  border-radius: var(--radius-md) !important;
+  font-size: 0.9rem !important;
+  transition: border-color 0.15s, box-shadow 0.15s !important;
+}
+.form-control::placeholder { color: var(--text-tertiary) !important; }
+.form-control:focus, .form-select:focus {
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 0 3px rgba(79,142,247,0.2) !important;
+  background-color: var(--bg-input) !important;
+  color: var(--text-primary) !important;
+}
+.form-select option { background: var(--bg-card); color: var(--text-primary); }
+.form-label {
+  font-size: 0.8125rem !important;
+  font-weight: 500 !important;
+  color: var(--text-secondary) !important;
+  margin-bottom: 0.4rem !important;
+}
+.form-check-input {
+  background-color: var(--bg-input) !important;
+  border-color: var(--border) !important;
+}
+.form-check-input:checked {
+  background-color: var(--accent) !important;
+  border-color: var(--accent) !important;
+}
+
+/* Bootstrap btn overrides */
+.btn { border-radius: var(--radius-md) !important; font-family: 'Inter', sans-serif !important; font-weight: 500 !important; transition: all 0.15s !important; }
+.btn-sm { font-size: 0.8125rem !important; }
+
+/* Badge Bootstrap dark */
+.badge { font-family: 'Inter', sans-serif !important; font-weight: 600 !important; letter-spacing: 0.02em !important; }
 
 /* ═══════════════════════════════════════════════════════════════
    REVISOR — estilos adicionales para index.css

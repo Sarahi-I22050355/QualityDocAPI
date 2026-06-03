@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Layout from '../components/Layout'
 import api from '../api/axios'
 import '../components/Seccion.css'
+import { swalError } from '../utils/swal'
 
 function SeccionDocumentosOperario() {
   const [busqueda, setBusqueda]     = useState('')
@@ -35,6 +36,20 @@ function SeccionDocumentosOperario() {
     }
   }
 
+  // Polling silencioso en segundo plano para mantener la lista actualizada
+  useEffect(() => {
+    if (!buscadoYa || !busqueda.trim()) return
+    const interval = setInterval(async () => {
+      try {
+        const r = await api.get(`/Documentos/buscar/${encodeURIComponent(busqueda)}`)
+        setResultados(r.data.resultados || [])
+      } catch (err) {
+        // Ignoramos errores de segundo plano
+      }
+    }, 60000)
+    return () => clearInterval(interval)
+  }, [buscadoYa, busqueda])
+
   const handleDescargar = async (idDoc, titulo) => {
     try {
       const r = await api.get(`/Documentos/descargar/${idDoc}`, { responseType: 'blob' })
@@ -45,7 +60,7 @@ function SeccionDocumentosOperario() {
       link.click()
       window.URL.revokeObjectURL(url)
     } catch (e) {
-      alert(e.response?.data?.Mensaje || 'Error al descargar el documento.')
+      swalError(e.response?.data?.Mensaje || 'Error al descargar el documento.')
     }
   }
 
@@ -55,10 +70,11 @@ function SeccionDocumentosOperario() {
         <h2 className="seccion-titulo">Documentos aprobados</h2>
       </div>
 
-      <div className="card" style={{ marginBottom: '1rem', background: '#f0fdf4', border: '1px solid #bbf7d0' }}>
-        <p style={{ fontSize: '0.875rem', color: '#166534' }}>
+      <div className="alerta-ok" style={{ marginBottom: '1rem' }}>
+        <i className="bi bi-info-circle" style={{ fontSize: '1.1rem' }}></i>
+        <span>
           Aquí puedes buscar y descargar los documentos aprobados de tu área, así como documentos del área General disponibles para todos.
-        </p>
+        </span>
       </div>
 
       <form onSubmit={handleBuscar}>
@@ -146,7 +162,7 @@ function SeccionDocumentosOperario() {
                           className="btn-primario"
                           onClick={() => handleDescargar(doc.sqlId, doc.titulo)}
                         >
-                          ⬇ Descargar
+                          <i className="bi bi-download"></i> Descargar
                         </button>
                       </td>
                     </tr>

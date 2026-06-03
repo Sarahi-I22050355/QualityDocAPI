@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react'
 import api from '../../api/axios'
 import '../../components/Seccion.css'
+import { swalConfirmPeligro, swalExito, swalError } from '../../utils/swal'
+
 
 export default function SeccionAreas() {
   const [areas, setAreas]           = useState([])
@@ -14,8 +16,8 @@ export default function SeccionAreas() {
   const [form, setForm]             = useState({ Nombre: '', Descripcion: '', EsGeneral: false })
   const [enviando, setEnviando]     = useState(false)
 
-  const mostrarOk    = (msg) => { setOk(msg);    setTimeout(() => setOk(''),    3000) }
-  const mostrarError = (msg) => { setError(msg); setTimeout(() => setError(''), 4000) }
+  const mostrarOk    = (msg) => { swalExito(msg) }
+  const mostrarError = (msg) => { swalError(msg) }
 
   const cargarDatos = async () => {
     setCargando(true)
@@ -69,7 +71,8 @@ export default function SeccionAreas() {
   }
 
   const handleDesactivar = async (area) => {
-    if (!confirm(`¿Desactivar el área "${area.nombre}"?`)) return
+    const ok = await swalConfirmPeligro({ titulo: `¿Desactivar área?`, texto: `El área <strong>${area.nombre}</strong> quedará inactiva. Los documentos existentes se conservarán.`, textoConfirmar: 'Sí, desactivar' })
+    if (!ok) return
     try {
       await api.delete(`/Areas/${area.id}`)
       mostrarOk(`Área "${area.nombre}" desactivada.`)
@@ -95,7 +98,7 @@ export default function SeccionAreas() {
     <div>
       <div className="seccion-header">
         <h2 className="seccion-titulo">Áreas</h2>
-        <button className="btn-primario" onClick={abrirCrear}>+ Nueva área</button>
+        <button className="btn-primario" onClick={abrirCrear}><i className="bi bi-plus-lg"></i> Nueva área</button>
       </div>
 
       {error && <div className="alerta-error">{error}</div>}
@@ -146,13 +149,13 @@ export default function SeccionAreas() {
                     <td style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                       {vista === 'activas' ? (
                         <>
-                          <button className="btn-secundario" onClick={() => abrirEditar(a)}>Editar</button>
+                          <button className="btn-secundario" onClick={() => abrirEditar(a)}><i className="bi bi-pencil"></i> Editar</button>
                           {!a.esGeneral && (
-                            <button className="btn-peligro" onClick={() => handleDesactivar(a)}>Desactivar</button>
+                            <button className="btn-peligro" onClick={() => handleDesactivar(a)}><i className="bi bi-slash-circle"></i> Desactivar</button>
                           )}
                         </>
                       ) : (
-                        <button className="btn-exito" onClick={() => handleReactivar(a)}>Reactivar</button>
+                        <button className="btn-exito" onClick={() => handleReactivar(a)}><i className="bi bi-check-circle"></i> Reactivar</button>
                       )}
                     </td>
                   </tr>
@@ -165,53 +168,63 @@ export default function SeccionAreas() {
 
       {/* ── Modal crear / editar ────────────────────────────────────── */}
       {modalAbierto && (
-        <div className="modal-fondo" onClick={() => setModal(false)}>
-          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
-            <h3 className="modal-titulo">{modoEdicion ? 'Editar área' : 'Nueva área'}</h3>
-            <form onSubmit={handleGuardar}>
-              <div className="form-grid una-col">
-                <div className="campo-form">
-                  <label>Nombre del área</label>
-                  <input
-                    required
-                    value={form.Nombre}
-                    onChange={(e) => setForm({ ...form, Nombre: e.target.value })}
-                    placeholder="Ej. Producción"
-                  />
-                </div>
-                <div className="campo-form">
-                  <label>Descripción (opcional)</label>
-                  <textarea
-                    value={form.Descripcion}
-                    onChange={(e) => setForm({ ...form, Descripcion: e.target.value })}
-                    placeholder="Descripción breve del área..."
-                  />
-                </div>
-                <div className="campo-form" style={{ flexDirection: 'row', alignItems: 'center', gap: '10px' }}>
-                  <input
-                    type="checkbox"
-                    id="esGeneral"
-                    checked={form.EsGeneral}
-                    onChange={(e) => setForm({ ...form, EsGeneral: e.target.checked })}
-                    style={{ width: 'auto' }}
-                  />
-                  <label htmlFor="esGeneral" style={{ margin: 0 }}>
-                    Área General (todos los usuarios pueden ver sus documentos)
-                  </label>
-                </div>
+        <div className="modal fade show" style={{ display: 'block', backgroundColor: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(4px)' }} tabIndex="-1" onClick={() => setModal(false)}>
+          <div className="modal-dialog modal-dialog-centered" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-content">
+              <div className="modal-header">
+                <h5 className="modal-title">
+                  <i className="bi bi-folder-plus" style={{ marginRight: '8px', color: 'var(--accent)' }}></i>
+                  {modoEdicion ? 'Editar área' : 'Nueva área'}
+                </h5>
+                <button type="button" className="btn-close" onClick={() => setModal(false)} aria-label="Cerrar"></button>
               </div>
+              <form onSubmit={handleGuardar}>
+                <div className="modal-body">
+                  <div className="form-grid una-col">
+                    <div className="campo-form">
+                      <label>Nombre del área</label>
+                      <input
+                        required
+                        value={form.Nombre}
+                        onChange={(e) => setForm({ ...form, Nombre: e.target.value })}
+                        placeholder="Ej. Producción"
+                      />
+                    </div>
+                    <div className="campo-form">
+                      <label>Descripción (opcional)</label>
+                      <textarea
+                        value={form.Descripcion}
+                        onChange={(e) => setForm({ ...form, Descripcion: e.target.value })}
+                        placeholder="Descripción breve del área..."
+                      />
+                    </div>
+                    <div className="campo-form" style={{ flexDirection: 'row', alignItems: 'center', gap: '10px' }}>
+                      <input
+                        type="checkbox"
+                        id="esGeneral"
+                        checked={form.EsGeneral}
+                        onChange={(e) => setForm({ ...form, EsGeneral: e.target.checked })}
+                        style={{ width: 'auto' }}
+                      />
+                      <label htmlFor="esGeneral" style={{ margin: 0 }}>
+                        Área General (todos los usuarios pueden ver sus documentos)
+                      </label>
+                    </div>
+                  </div>
 
-              {error && <div className="alerta-error" style={{ marginTop: '1rem' }}>{error}</div>}
+                  {error && <div className="alerta-error" style={{ marginTop: '1rem' }}>{error}</div>}
+                </div>
 
-              <div className="modal-acciones">
-                <button type="button" className="btn-secundario" onClick={() => setModal(false)}>
-                  Cancelar
-                </button>
-                <button type="submit" className="btn-primario" disabled={enviando}>
-                  {enviando ? 'Guardando...' : modoEdicion ? 'Guardar cambios' : 'Crear área'}
-                </button>
-              </div>
-            </form>
+                <div className="modal-footer">
+                  <button type="button" className="btn-secundario" onClick={() => setModal(false)}>
+                    Cancelar
+                  </button>
+                  <button type="submit" className="btn-primario" disabled={enviando}>
+                    {enviando ? 'Guardando...' : modoEdicion ? 'Guardar cambios' : 'Crear área'}
+                  </button>
+                </div>
+              </form>
+            </div>
           </div>
         </div>
       )}

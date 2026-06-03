@@ -53,6 +53,9 @@ export default function Login() {
       <div className="login-card">
 
         <div className="login-header">
+          <div className="login-icono">
+            <i className="bi bi-file-earmark-check"></i>
+          </div>
           <h1 className="login-titulo">QualityDoc</h1>
           <p className="login-subtitulo">Sistema de gestión documental</p>
         </div>
@@ -60,7 +63,10 @@ export default function Login() {
         <form onSubmit={handleSubmit} className="login-form">
 
           <div className="campo">
-            <label htmlFor="email">Correo electrónico</label>
+            <label htmlFor="email">
+              <i className="bi bi-envelope"></i>
+              Correo electrónico
+            </label>
             <input
               id="email"
               type="email"
@@ -74,7 +80,10 @@ export default function Login() {
           </div>
 
           <div className="campo">
-            <label htmlFor="password">Contraseña</label>
+            <label htmlFor="password">
+              <i className="bi bi-lock"></i>
+              Contraseña
+            </label>
             <input
               id="password"
               type="password"
@@ -89,12 +98,16 @@ export default function Login() {
 
           {error && (
             <div className="login-error">
+              <i className="bi bi-exclamation-triangle-fill"></i>
               {error}
             </div>
           )}
 
           <button type="submit" className="login-btn" disabled={cargando}>
-            {cargando ? 'Iniciando sesión...' : 'Iniciar sesión'}
+            {cargando
+              ? <><span className="qd-spinner"></span> Iniciando sesión...</>
+              : <><i className="bi bi-box-arrow-in-right"></i> Iniciar sesión</>
+            }
           </button>
 
         </form>

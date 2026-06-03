@@ -1,5 +1,6 @@
 import { useRef, useCallback, useState } from 'react'
 import './EditorTexto.css'
+import { swalWarning } from '../utils/swal'
 
 const FUENTES = [
   { label: 'Por defecto',      value: '' },
@@ -76,7 +77,7 @@ export default function EditorTexto({ value, onChange, placeholder }) {
 
     const selection = window.getSelection()
     if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
-      alert('Selecciona el texto al que quieres aplicar la fuente.')
+      swalWarning('Selecciona el texto al que quieres aplicar la fuente.')
       return
     }
 
@@ -126,7 +127,7 @@ export default function EditorTexto({ value, onChange, placeholder }) {
     const nodosTitulos = tempDiv.querySelectorAll('h1, h2, h3')
 
     if (nodosTitulos.length === 0) {
-      alert('No hay títulos en el documento. Usa el selector "Título" para agregar Título 1, 2 o 3.')
+      swalWarning('No hay títulos en el documento. Usa el selector "Título" para agregar Título 1, 2 o 3.')
       return
     }
 

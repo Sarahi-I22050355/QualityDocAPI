@@ -348,19 +348,7 @@ namespace QualityDocAPI.Controllers
                 {
                     var docSql = documentosSQL.FirstOrDefault(d => d.Id == docMongo.SqlId);
                     // Calcular firmas para mostrar progreso
-                    int firmasReq = 0, firmasOk = 0;
-                    if (docSql != null)
-                    {
-                        var flujos = _sqlContext.FlujoAprobacion
-                            .Where(f => f.IdDocumento == docSql.Id)
-                            .ToList();
-                        var activos = flujos.Where(f => f.IdAreaRequerida.HasValue).ToList();
-                        if (activos.Any())
-                        {
-                            firmasReq = activos.Count;
-                            firmasOk  = activos.Count(f => f.Decision == "Aprobado");
-                        }
-                    }
+                    var (firmasReq, firmasOk) = CalcularProgresoFirmas(docSql);
                     return new
                     {
                         Documento    = docMongo,
@@ -479,11 +467,7 @@ namespace QualityDocAPI.Controllers
                     }
 
                     // Progreso de firmas
-                    var todosLosFlujos = _sqlContext.FlujoAprobacion
-                        .Where(f => f.IdDocumento == docSql.Id && f.IdAreaRequerida.HasValue)
-                        .ToList();
-                    int firmasReq = todosLosFlujos.Count;
-                    int firmasOk  = todosLosFlujos.Count(f => f.Decision == "Aprobado");
+                    var (firmasReq, firmasOk) = CalcularProgresoFirmas(docSql);
 
                     return new
                     {
@@ -794,11 +778,7 @@ namespace QualityDocAPI.Controllers
                     .Any(f => f.IdDocumento == id && f.Decision == "Pendiente");
 
                 // Calcular progreso de firmas
-                var flujosFirmados = _sqlContext.FlujoAprobacion
-                    .Where(f => f.IdDocumento == id && f.IdAreaRequerida.HasValue)
-                    .ToList();
-                int firmasReq = flujosFirmados.Count;
-                int firmasOk  = flujosFirmados.Count(f => f.Decision == "Aprobado");
+                var (firmasReq, firmasOk) = CalcularProgresoFirmas(documento);
 
                 return Ok(new
                 {
@@ -1211,6 +1191,42 @@ namespace QualityDocAPI.Controllers
             using var pdfMs = new MemoryStream();
             HtmlConverter.ConvertToPdf(htmlCompleto, pdfMs);
             return pdfMs.ToArray();
+        }
+
+        private (int firmasReq, int firmasOk) CalcularProgresoFirmas(DocumentoSQL? docSql)
+        {
+            if (docSql == null) return (0, 0);
+
+            // Si el documento es Borrador y no tiene flujos pendientes de aprobación, el progreso es 0/0
+            if (docSql.IdEstado == 1)
+            {
+                bool tienePendientes = _sqlContext.FlujoAprobacion
+                    .Any(f => f.IdDocumento == docSql.Id && f.Decision == "Pendiente");
+                if (!tienePendientes)
+                {
+                    return (0, 0);
+                }
+            }
+
+            var todos = _sqlContext.FlujoAprobacion
+                .Where(f => f.IdDocumento == docSql.Id && f.IdAreaRequerida.HasValue)
+                .ToList();
+
+            if (!todos.Any())
+                return (0, 0);
+
+            // Encontrar la fecha de solicitud de la última solicitud de aprobación
+            var ultimaFecha = todos.Max(f => f.FechaSolicitud);
+
+            // Filtrar los flujos de esa última solicitud (con ventana de 10 segundos)
+            var flujosUltimaSolicitud = todos
+                .Where(f => (ultimaFecha - f.FechaSolicitud).Duration() <= TimeSpan.FromSeconds(10))
+                .ToList();
+
+            int firmasReq = flujosUltimaSolicitud.Count;
+            int firmasOk  = flujosUltimaSolicitud.Count(f => f.Decision == "Aprobado");
+
+            return (firmasReq, firmasOk);
         }
     }
 }

@@ -173,51 +173,63 @@ export default function SeccionVersiones() {
 
       {/* ── Modal nueva versión ─────────────────────────────────────── */}
       {modalNuevaVer && (
-        <div className="modal-fondo" onClick={() => setModalNuevaVer(false)}>
-          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
-            <h3 className="modal-titulo">Subir nueva versión — Doc #{idDocBuscar}</h3>
-            <p style={{ fontSize: '0.875rem', color: '#854F0B', background: '#fef3c7', padding: '8px 12px', borderRadius: '8px', marginBottom: '1rem' }}>
-              El documento regresará a estado <strong>Borrador</strong> y necesitará una nueva aprobación.
-            </p>
-            <form onSubmit={handleSubirVersion}>
-              <div className="form-grid una-col">
-                <div className="campo-form">
-                  <label>¿Qué cambió en esta versión? *</label>
-                  <textarea
-                    required
-                    value={formVer.ComentarioCambio}
-                    onChange={(e) => setFormVer({ ...formVer, ComentarioCambio: e.target.value })}
-                    placeholder="Ej: Se actualizó la sección 3.2 por cambio en el procedimiento de proveedor X"
-                  />
-                </div>
-                <div className="campo-form">
-                  <label>Nuevo archivo PDF</label>
-                  <input type="file" accept=".pdf"
-                    onChange={(e) => setArchivoVer(e.target.files[0])} />
-                </div>
-                {!archivoVer && (
-                  <div className="campo-form">
-                    <label>O escribe el nuevo contenido</label>
-                    <textarea
-                      value={formVer.ContenidoTexto}
-                      onChange={(e) => setFormVer({ ...formVer, ContenidoTexto: e.target.value })}
-                      placeholder="Nuevo contenido del documento..."
-                    />
+        <div className="modal fade show" style={{ display: 'block', backgroundColor: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(4px)' }} tabIndex="-1" onClick={() => setModalNuevaVer(false)}>
+          <div className="modal-dialog modal-dialog-centered" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-content">
+              <div className="modal-header">
+                <h5 className="modal-title">
+                  <i className="bi bi-file-earmark-arrow-up-fill" style={{ marginRight: '8px', color: 'var(--accent)' }}></i>
+                  Subir nueva versión — Doc #{idDocBuscar}
+                </h5>
+                <button type="button" className="btn-close" onClick={() => setModalNuevaVer(false)} aria-label="Cerrar"></button>
+              </div>
+              <form onSubmit={handleSubirVersion}>
+                <div className="modal-body">
+                  <div className="alerta-error" style={{ marginBottom: '1rem', borderLeftColor: '#f59e0b', color: '#fbbf24', background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)', borderLeftWidth: '3px' }}>
+                    <i className="bi bi-exclamation-triangle-fill" style={{ fontSize: '1.1rem', marginRight: '8px' }}></i>
+                    <span>El documento regresará a estado <strong>Borrador</strong> y necesitará una nueva aprobación.</span>
                   </div>
-                )}
-              </div>
 
-              {errorVer && <div className="alerta-error" style={{ marginTop: '1rem' }}>{errorVer}</div>}
+                  <div className="form-grid una-col">
+                    <div className="campo-form">
+                      <label>¿Qué cambió en esta versión? *</label>
+                      <textarea
+                        required
+                        value={formVer.ComentarioCambio}
+                        onChange={(e) => setFormVer({ ...formVer, ComentarioCambio: e.target.value })}
+                        placeholder="Ej: Se actualizó la sección 3.2 por cambio en el procedimiento de proveedor X"
+                      />
+                    </div>
+                    <div className="campo-form">
+                      <label>Nuevo archivo PDF</label>
+                      <input type="file" accept=".pdf"
+                        onChange={(e) => setArchivoVer(e.target.files[0])} />
+                    </div>
+                    {!archivoVer && (
+                      <div className="campo-form">
+                        <label>O escribe el nuevo contenido</label>
+                        <textarea
+                          value={formVer.ContenidoTexto}
+                          onChange={(e) => setFormVer({ ...formVer, ContenidoTexto: e.target.value })}
+                          placeholder="Nuevo contenido del documento..."
+                        />
+                      </div>
+                    )}
+                  </div>
 
-              <div className="modal-acciones">
-                <button type="button" className="btn-secundario" onClick={() => setModalNuevaVer(false)}>
-                  Cancelar
-                </button>
-                <button type="submit" className="btn-primario" disabled={subiendoVer}>
-                  {subiendoVer ? 'Subiendo...' : 'Subir versión'}
-                </button>
-              </div>
-            </form>
+                  {errorVer && <div className="alerta-error" style={{ marginTop: '1rem' }}>{errorVer}</div>}
+                </div>
+
+                <div className="modal-footer">
+                  <button type="button" className="btn-secundario" onClick={() => setModalNuevaVer(false)}>
+                    Cancelar
+                  </button>
+                  <button type="submit" className="btn-primario" disabled={subiendoVer}>
+                    {subiendoVer ? 'Subiendo...' : 'Subir versión'}
+                  </button>
+                </div>
+              </form>
+            </div>
           </div>
         </div>
       )}

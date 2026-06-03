@@ -16,6 +16,11 @@ export default function Layout({ titulo, secciones, seccionActiva, setSeccion, c
     navigate('/login')
   }
 
+  // Iniciales del avatar a partir del nombre del usuario
+  const iniciales = usuario?.nombre
+    ? usuario.nombre.split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase()
+    : '?'
+
   return (
     <div className="layout">
 
@@ -27,17 +32,28 @@ export default function Layout({ titulo, secciones, seccionActiva, setSeccion, c
             onClick={() => setMenuAbierto(!menuAbierto)}
             aria-label="Abrir menú"
           >
-            ☰
+            <i className="bi bi-list"></i>
           </button>
-          <span className="header-titulo">{titulo}</span>
+          <div className="header-brand">
+            <div className="header-brand-icon">
+              <i className="bi bi-file-earmark-check-fill"></i>
+            </div>
+            <span className="header-titulo">{titulo}</span>
+          </div>
         </div>
         <div className="header-der">
-          <span className="header-usuario">
-            {usuario?.nombre}
-            <small>{usuario?.area} · {usuario?.nombre_empresa}</small>
-          </span>          
+          <div className="header-user-wrap">
+            <div className="header-avatar" title={usuario?.nombre}>
+              {iniciales}
+            </div>
+            <span className="header-usuario">
+              {usuario?.nombre}
+              <small>{usuario?.area} · {usuario?.nombre_empresa}</small>
+            </span>
+          </div>
           <button className="btn-logout" onClick={handleLogout}>
-            Cerrar sesión
+            <i className="bi bi-box-arrow-right"></i>
+            Salir
           </button>
         </div>
       </header>

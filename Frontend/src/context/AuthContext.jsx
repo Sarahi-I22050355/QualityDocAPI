@@ -13,6 +13,22 @@ function normalizarPayload(payload) {
   };
 }
 
+function decodeToken(token) {
+  try {
+    const base64Url = token.split(".")[1];
+    const base64 = base64Url.replace(/-/g, "+").replace(/_/g, "/");
+    const jsonPayload = decodeURIComponent(
+      atob(base64)
+        .split("")
+        .map((c) => "%" + ("00" + c.charCodeAt(0).toString(16)).slice(-2))
+        .join("")
+    );
+    return JSON.parse(jsonPayload);
+  } catch {
+    return null;
+  }
+}
+
 export function AuthProvider({ children }) {
   const [usuario, setUsuario] = useState(null);
   const [cargando, setCargando] = useState(true);
@@ -20,10 +36,10 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     const token = localStorage.getItem("token");
     if (token) {
-      try {
-        const payload = JSON.parse(atob(token.split(".")[1]));
+      const payload = decodeToken(token);
+      if (payload) {
         setUsuario(normalizarPayload(payload));
-      } catch {
+      } else {
         localStorage.removeItem("token");
       }
     }
@@ -33,8 +49,10 @@ export function AuthProvider({ children }) {
   const login = (data) => {
     const token = data.token || data;
     localStorage.setItem("token", token);
-    const payload = JSON.parse(atob(token.split(".")[1]));
-    setUsuario(normalizarPayload(payload));
+    const payload = decodeToken(token);
+    if (payload) {
+      setUsuario(normalizarPayload(payload));
+    }
   };
 
   const logout = () => {

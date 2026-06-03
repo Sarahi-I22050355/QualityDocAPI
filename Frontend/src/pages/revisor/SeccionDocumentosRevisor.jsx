@@ -54,7 +54,11 @@ export default function SeccionDocumentosRevisor() {
     }
   }
 
-  useEffect(() => { cargarPendientes(); }, []);
+  useEffect(() => {
+    cargarPendientes();
+    const interval = setInterval(cargarPendientes, 60000);
+    return () => clearInterval(interval);
+  }, []);
 
   async function resolver() {
     if (!modalDoc) return;
@@ -165,7 +169,7 @@ export default function SeccionDocumentosRevisor() {
                       <td>
                         <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
                           <button className="btn-secundario" onClick={() => descargar(id)}>
-                            Descargar
+                            <i className="bi bi-download"></i> Descargar
                           </button>
                           <button className="btn-primario" onClick={() => {
                             setModalDoc(item);
@@ -173,7 +177,7 @@ export default function SeccionDocumentosRevisor() {
                             setComentario("");
                             setMensaje("");
                           }}>
-                            Revisar
+                            <i className="bi bi-eye"></i> Revisar
                           </button>
                         </div>
                       </td>
@@ -188,66 +192,76 @@ export default function SeccionDocumentosRevisor() {
 
       {/* ── Modal de resolución ── */}
       {modalDoc && (
-        <div className="modal-fondo" onClick={() => setModalDoc(null)}>
-          <div className="modal-card" style={{ maxWidth: "440px" }} onClick={e => e.stopPropagation()}>
-            <h3 className="modal-titulo">Resolver aprobación</h3>
-            <p style={{ fontSize: "0.85rem", color: "#6b7280", marginBottom: "0.5rem" }}>
-              {(modalDoc.documento ?? modalDoc.Documento)?.titulo ?? "Documento"}
-            </p>
-
-            {/* Progreso de firmas en el modal */}
-            {modalDoc.firmasReq > 0 && (
-              <div style={{
-                background: "rgba(79,142,247,0.08)", border: "1px solid rgba(79,142,247,0.2)",
-                borderRadius: "8px", padding: "10px 12px", marginBottom: "1rem"
-              }}>
-                <BarraFirmas requeridas={modalDoc.firmasReq} obtenidas={modalDoc.firmasOk} />
-                <p style={{ fontSize: "0.75rem", color: "#6b7280", marginTop: "6px" }}>
-                  {modalDoc.firmasReq - modalDoc.firmasOk === 1
-                    ? "Esta es la última firma requerida."
-                    : `Faltarán ${modalDoc.firmasReq - modalDoc.firmasOk - 1} firma(s) más después de la tuya.`}
+        <div className="modal fade show" style={{ display: 'block', backgroundColor: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(4px)' }} tabIndex="-1" onClick={() => setModalDoc(null)}>
+          <div className="modal-dialog modal-dialog-centered" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-content">
+              <div className="modal-header">
+                <h5 className="modal-title">
+                  <i className="bi bi-check-square-fill" style={{ marginRight: '8px', color: 'var(--accent)' }}></i>
+                  Resolver aprobación
+                </h5>
+                <button type="button" className="btn-close" onClick={() => setModalDoc(null)} aria-label="Cerrar"></button>
+              </div>
+              <div className="modal-body">
+                <p style={{ fontSize: "0.85rem", color: "#6b7280", marginBottom: "0.5rem" }}>
+                  {(modalDoc.documento ?? modalDoc.Documento)?.titulo ?? "Documento"}
                 </p>
-              </div>
-            )}
 
-            <div className="form-grid una-col">
-              <div className="campo-form">
-                <label>Decisión</label>
-                <select value={decision} onChange={(e) => setDecision(e.target.value)}>
-                  <option value="Aprobado">✅ Aprobar</option>
-                  <option value="Rechazado">❌ Rechazar</option>
-                </select>
-              </div>
-              <div className="campo-form">
-                <label>Comentarios {decision === "Rechazado" ? "*" : "(opcional)"}</label>
-                <textarea
-                  rows={4}
-                  placeholder="Escribe observaciones o motivo de rechazo…"
-                  value={comentario}
-                  onChange={e => setComentario(e.target.value)}
-                  required={decision === "Rechazado"}
-                />
-              </div>
-            </div>
+                {/* Progreso de firmas en el modal */}
+                {modalDoc.firmasReq > 0 && (
+                  <div style={{
+                    background: "rgba(79,142,247,0.08)", border: "1px solid rgba(79,142,247,0.2)",
+                    borderRadius: "8px", padding: "10px 12px", marginBottom: "1rem"
+                  }}>
+                    <BarraFirmas requeridas={modalDoc.firmasReq} obtenidas={modalDoc.firmasOk} />
+                    <p style={{ fontSize: "0.75rem", color: "#6b7280", marginTop: "6px" }}>
+                      {modalDoc.firmasReq - modalDoc.firmasOk === 1
+                        ? "Esta es la última firma requerida."
+                        : `Faltarán ${modalDoc.firmasReq - modalDoc.firmasOk - 1} firma(s) más después de la tuya.`}
+                    </p>
+                  </div>
+                )}
 
-            {mensaje && (
-              <div className={mensaje.startsWith("✅") ? "alerta-ok" : "alerta-error"}
-                style={{ marginTop: "1rem" }}>
-                {mensaje}
-              </div>
-            )}
+                <div className="form-grid una-col">
+                  <div className="campo-form">
+                    <label>Decisión</label>
+                    <select value={decision} onChange={(e) => setDecision(e.target.value)}>
+                      <option value="Aprobado">✅ Aprobar</option>
+                      <option value="Rechazado">❌ Rechazar</option>
+                    </select>
+                  </div>
+                  <div className="campo-form">
+                    <label>Comentarios {decision === "Rechazado" ? "*" : "(opcional)"}</label>
+                    <textarea
+                      rows={4}
+                      placeholder="Escribe observaciones o motivo de rechazo…"
+                      value={comentario}
+                      onChange={e => setComentario(e.target.value)}
+                      required={decision === "Rechazado"}
+                    />
+                  </div>
+                </div>
 
-            <div className="modal-acciones">
-              <button className="btn-secundario" onClick={() => setModalDoc(null)} disabled={enviando}>
-                Cancelar
-              </button>
-              <button
-                className={decision === "Rechazado" ? "btn-peligro" : "btn-primario"}
-                onClick={resolver}
-                disabled={enviando}
-              >
-                {enviando ? "Guardando…" : decision === "Aprobado" ? "Aprobar" : "Rechazar"}
-              </button>
+                {mensaje && (
+                  <div className={mensaje.startsWith("✅") || mensaje.includes("✅") ? "alerta-ok" : "alerta-error"}
+                    style={{ marginTop: "1rem" }}>
+                    {mensaje}
+                  </div>
+                )}
+              </div>
+
+              <div className="modal-footer">
+                <button className="btn-secundario" onClick={() => setModalDoc(null)} disabled={enviando}>
+                  Cancelar
+                </button>
+                <button
+                  className={decision === "Rechazado" ? "btn-peligro" : "btn-primario"}
+                  onClick={resolver}
+                  disabled={enviando}
+                >
+                  {enviando ? "Guardando…" : decision === "Aprobado" ? "Aprobar" : "Rechazar"}
+                </button>
+              </div>
             </div>
           </div>
         </div>

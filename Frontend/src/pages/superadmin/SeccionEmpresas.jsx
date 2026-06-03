@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import api from '../../api/axios'
 import '../../components/Seccion.css'
+import { swalConfirmPeligro, swalExito, swalError } from '../../utils/swal'
 
 export default function SeccionEmpresas() {
   const [empresas, setEmpresas]         = useState([])
@@ -21,8 +22,8 @@ export default function SeccionEmpresas() {
   const [enviandoAdm, setEnviandoAdm]   = useState(false)
   const [errorAdm, setErrorAdm]         = useState('')
 
-  const mostrarOk    = (msg) => { setOk(msg);    setTimeout(() => setOk(''),    3500) }
-  const mostrarError = (msg) => { setError(msg); setTimeout(() => setError(''), 4500) }
+  const mostrarOk    = (msg) => { swalExito(msg) }
+  const mostrarError = (msg) => { swalError(msg) }
 
   // ── Cargar empresas ────────────────────────────────────────────
   const cargarEmpresas = async () => {
@@ -59,7 +60,8 @@ export default function SeccionEmpresas() {
 
   // ── Desactivar empresa ─────────────────────────────────────────
   const handleDesactivar = async (empresa) => {
-    if (!confirm(`¿Desactivar la empresa "${empresa.nombre}"? Sus usuarios ya no podrán acceder.`)) return
+    const ok = await swalConfirmPeligro({ titulo: '¿Desactivar empresa?', texto: `La empresa <strong>${empresa.nombre}</strong> será desactivada y sus usuarios ya no podrán acceder.`, textoConfirmar: 'Sí, desactivar' })
+    if (!ok) return
     try {
       await api.put(`/Empresas/${empresa.id}/desactivar`)
       mostrarOk(`Empresa "${empresa.nombre}" desactivada.`)
@@ -106,7 +108,7 @@ export default function SeccionEmpresas() {
           setErrorEmp('')
           setModalEmpresa(true)
         }}>
-          + Nueva empresa
+          <i className="bi bi-building-add"></i> Nueva empresa
         </button>
       </div>
 
@@ -160,18 +162,18 @@ export default function SeccionEmpresas() {
                       <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                         {emp.activo && (
                           <>
-                            <button
+                             <button
                               className="btn-secundario"
                               onClick={() => abrirModalAdmin(emp)}
                               title="Crear administrador para esta empresa"
                             >
-                              + Admin
+                              <i className="bi bi-person-plus"></i> Admin
                             </button>
                             <button
                               className="btn-peligro"
                               onClick={() => handleDesactivar(emp)}
                             >
-                              Desactivar
+                              <i className="bi bi-slash-circle"></i> Desactivar
                             </button>
                           </>
                         )}
@@ -187,104 +189,124 @@ export default function SeccionEmpresas() {
 
       {/* ── Modal crear empresa ── */}
       {modalEmpresa && (
-        <div className="modal-fondo" onClick={() => setModalEmpresa(false)}>
-          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
-            <h3 className="modal-titulo">Nueva empresa</h3>
-            <form onSubmit={handleCrearEmpresa}>
-              <div className="form-grid una-col">
-                <div className="campo-form">
-                  <label>Nombre de la empresa *</label>
-                  <input
-                    required
-                    value={formEmpresa.Nombre}
-                    onChange={(e) => setFormEmpresa({ ...formEmpresa, Nombre: e.target.value })}
-                    placeholder="Ej. Grupo Industrial Monclova"
-                  />
-                </div>
-                <div className="campo-form">
-                  <label>RFC <span style={{ fontWeight: 400, color: 'var(--text-tertiary)' }}>(opcional)</span></label>
-                  <input
-                    value={formEmpresa.Rfc}
-                    onChange={(e) => setFormEmpresa({ ...formEmpresa, Rfc: e.target.value })}
-                    placeholder="Ej. GIM850101ABC"
-                  />
-                </div>
+        <div className="modal fade show" style={{ display: 'block', backgroundColor: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(4px)' }} tabIndex="-1" onClick={() => setModalEmpresa(false)}>
+          <div className="modal-dialog modal-dialog-centered" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-content">
+              <div className="modal-header">
+                <h5 className="modal-title">
+                  <i className="bi bi-building-add" style={{ marginRight: '8px', color: 'var(--accent)' }}></i>
+                  Nueva empresa
+                </h5>
+                <button type="button" className="btn-close" onClick={() => setModalEmpresa(false)} aria-label="Cerrar"></button>
               </div>
+              <form onSubmit={handleCrearEmpresa}>
+                <div className="modal-body">
+                  <div className="form-grid una-col">
+                    <div className="campo-form">
+                      <label>Nombre de la empresa *</label>
+                      <input
+                        required
+                        value={formEmpresa.Nombre}
+                        onChange={(e) => setFormEmpresa({ ...formEmpresa, Nombre: e.target.value })}
+                        placeholder="Ej. Grupo Industrial Monclova"
+                      />
+                    </div>
+                    <div className="campo-form">
+                      <label>RFC <span style={{ fontWeight: 400, color: 'var(--text-tertiary)' }}>(opcional)</span></label>
+                      <input
+                        value={formEmpresa.Rfc}
+                        onChange={(e) => setFormEmpresa({ ...formEmpresa, Rfc: e.target.value })}
+                        placeholder="Ej. GIM850101ABC"
+                      />
+                    </div>
+                  </div>
 
-              {errorEmp && <div className="alerta-error" style={{ marginTop: '1rem' }}>{errorEmp}</div>}
+                  {errorEmp && <div className="alerta-error" style={{ marginTop: '1rem' }}>{errorEmp}</div>}
+                </div>
 
-              <div className="modal-acciones">
-                <button type="button" className="btn-secundario" onClick={() => setModalEmpresa(false)}>
-                  Cancelar
-                </button>
-                <button type="submit" className="btn-primario" disabled={enviandoEmp}>
-                  {enviandoEmp ? 'Creando...' : 'Crear empresa'}
-                </button>
-              </div>
-            </form>
+                <div className="modal-footer">
+                  <button type="button" className="btn-secundario" onClick={() => setModalEmpresa(false)}>
+                    Cancelar
+                  </button>
+                  <button type="submit" className="btn-primario" disabled={enviandoEmp}>
+                    {enviandoEmp ? 'Creando...' : 'Crear empresa'}
+                  </button>
+                </div>
+              </form>
+            </div>
           </div>
         </div>
       )}
 
       {/* ── Modal crear admin ── */}
       {modalAdmin && (
-        <div className="modal-fondo" onClick={() => setModalAdmin(false)}>
-          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
-            <h3 className="modal-titulo">Crear administrador</h3>
-            <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', marginBottom: '1.25rem' }}>
-              Empresa: <strong style={{ color: 'var(--text-primary)' }}>{empresaSel?.nombre}</strong>
-              <br />
-              <span style={{ fontSize: '0.8rem', color: '#a78bfa' }}>
-                Se creará también el área General de esta empresa automáticamente.
-              </span>
-            </p>
-            <form onSubmit={handleCrearAdmin}>
-              <div className="form-grid una-col">
-                <div className="campo-form">
-                  <label>Nombre completo *</label>
-                  <input
-                    required
-                    value={formAdmin.NombreCompleto}
-                    onChange={(e) => setFormAdmin({ ...formAdmin, NombreCompleto: e.target.value })}
-                    placeholder="Ej. María López"
-                  />
-                </div>
-                <div className="campo-form">
-                  <label>Correo electrónico *</label>
-                  <input
-                    type="email"
-                    required
-                    value={formAdmin.Email}
-                    onChange={(e) => setFormAdmin({ ...formAdmin, Email: e.target.value })}
-                    placeholder="admin@empresa.com"
-                  />
-                </div>
-                <div className="campo-form">
-                  <label>Contraseña *</label>
-                  <input
-                    type="password"
-                    required
-                    value={formAdmin.Password}
-                    onChange={(e) => setFormAdmin({ ...formAdmin, Password: e.target.value })}
-                    placeholder="Mín. 12 caracteres, 1 mayúscula, 1 especial"
-                  />
-                  <span style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)', fontStyle: 'italic' }}>
-                    Comparte esta contraseña con el administrador de la empresa.
-                  </span>
-                </div>
+        <div className="modal fade show" style={{ display: 'block', backgroundColor: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(4px)' }} tabIndex="-1" onClick={() => setModalAdmin(false)}>
+          <div className="modal-dialog modal-dialog-centered" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-content">
+              <div className="modal-header">
+                <h5 className="modal-title">
+                  <i className="bi bi-person-badge-fill" style={{ marginRight: '8px', color: 'var(--accent)' }}></i>
+                  Crear administrador
+                </h5>
+                <button type="button" className="btn-close" onClick={() => setModalAdmin(false)} aria-label="Cerrar"></button>
               </div>
+              <form onSubmit={handleCrearAdmin}>
+                <div className="modal-body">
+                  <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', marginBottom: '1.25rem' }}>
+                    Empresa: <strong style={{ color: 'var(--text-primary)' }}>{empresaSel?.nombre}</strong>
+                    <br />
+                    <span style={{ fontSize: '0.8rem', color: '#a78bfa' }}>
+                      Se creará también el área General de esta empresa automáticamente.
+                    </span>
+                  </p>
+                  <div className="form-grid una-col">
+                    <div className="campo-form">
+                      <label>Nombre completo *</label>
+                      <input
+                        required
+                        value={formAdmin.NombreCompleto}
+                        onChange={(e) => setFormAdmin({ ...formAdmin, NombreCompleto: e.target.value })}
+                        placeholder="Ej. María López"
+                      />
+                    </div>
+                    <div className="campo-form">
+                      <label>Correo electrónico *</label>
+                      <input
+                        type="email"
+                        required
+                        value={formAdmin.Email}
+                        onChange={(e) => setFormAdmin({ ...formAdmin, Email: e.target.value })}
+                        placeholder="admin@empresa.com"
+                      />
+                    </div>
+                    <div className="campo-form">
+                      <label>Contraseña *</label>
+                      <input
+                        type="password"
+                        required
+                        value={formAdmin.Password}
+                        onChange={(e) => setFormAdmin({ ...formAdmin, Password: e.target.value })}
+                        placeholder="Mín. 12 caracteres, 1 mayúscula, 1 especial"
+                      />
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)', fontStyle: 'italic' }}>
+                        Comparte esta contraseña con el administrador de la empresa.
+                      </span>
+                    </div>
+                  </div>
 
-              {errorAdm && <div className="alerta-error" style={{ marginTop: '1rem' }}>{errorAdm}</div>}
+                  {errorAdm && <div className="alerta-error" style={{ marginTop: '1rem' }}>{errorAdm}</div>}
+                </div>
 
-              <div className="modal-acciones">
-                <button type="button" className="btn-secundario" onClick={() => setModalAdmin(false)}>
-                  Cancelar
-                </button>
-                <button type="submit" className="btn-primario" disabled={enviandoAdm}>
-                  {enviandoAdm ? 'Creando...' : 'Crear administrador'}
-                </button>
-              </div>
-            </form>
+                <div className="modal-footer">
+                  <button type="button" className="btn-secundario" onClick={() => setModalAdmin(false)}>
+                    Cancelar
+                  </button>
+                  <button type="submit" className="btn-primario" disabled={enviandoAdm}>
+                    {enviandoAdm ? 'Creando...' : 'Crear administrador'}
+                  </button>
+                </div>
+              </form>
+            </div>
           </div>
         </div>
       )}

@@ -1,9 +1,10 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import api from '../../api/axios'
 import '../../components/Seccion.css'
 import EditorTexto from '../../components/EditorTexto'
 import { useAuth } from '../../context/AuthContext'
 import { useCategorias } from '../../hooks/useCategorias'
+import { swalError, swalInfo } from '../../utils/swal'
 
 // ── Barra de progreso de firmas ───────────────────────────────────
 function BarraFirmas({ requeridas, obtenidas }) {
@@ -98,6 +99,33 @@ export default function SeccionDocumentos() {
     }
   }
 
+  const refrescarSilencioso = async () => {
+    if (!busqueda.trim()) return
+    try {
+      const r = await api.get(`/Documentos/buscar/${encodeURIComponent(busqueda)}`)
+      const docs = r.data.resultados || []
+      setResultados(docs)
+      docs.forEach(async (item) => {
+        const idDoc = item.documento?.sqlId ?? item.sqlId
+        if (!idDoc) return
+        try {
+          const vr = await api.get(`/Documentos/${idDoc}/versiones`)
+          setVersionesMap(prev => ({ ...prev, [idDoc]: { cargando: false, data: vr.data } }))
+        } catch {
+          // ignore
+        }
+      })
+    } catch {
+      // ignore
+    }
+  }
+
+  useEffect(() => {
+    if (!buscadoYa) return
+    const interval = setInterval(refrescarSilencioso, 60000)
+    return () => clearInterval(interval)
+  }, [buscadoYa, busqueda])
+
   const handleDescargar = async (idDoc, titulo, version) => {
     try {
       const url = version
@@ -111,7 +139,7 @@ export default function SeccionDocumentos() {
       link.click()
       window.URL.revokeObjectURL(blobUrl)
     } catch {
-      alert('Error al descargar el documento.')
+      swalError('Error al descargar el documento.')
     }
   }
 
@@ -161,9 +189,9 @@ export default function SeccionDocumentos() {
   const handleSolicitar = async (idDoc) => {
     try {
       const res = await api.put(`/Documentos/solicitar-aprobacion/${idDoc}`)
-      alert(res.data?.Mensaje || 'Solicitud de revisión creada correctamente.')
+      swalInfo(res.data?.Mensaje || 'Solicitud de revisión creada correctamente.')
     } catch (e) {
-      alert(e.response?.data?.Mensaje || 'Error al solicitar aprobación.')
+      swalError(e.response?.data?.Mensaje || 'Error al solicitar aprobación.')
     }
   }
 
@@ -266,7 +294,7 @@ export default function SeccionDocumentos() {
     <div>
       <div className="seccion-header">
         <h2 className="seccion-titulo">Documentos</h2>
-        <button className="btn-primario" onClick={abrirModalSubir}>+ Subir documento</button>
+        <button className="btn-primario" onClick={abrirModalSubir}><i className="bi bi-upload"></i> Subir documento</button>
       </div>
 
       {okSubir && <div className="alerta-ok">{okSubir}</div>}
@@ -421,150 +449,170 @@ export default function SeccionDocumentos() {
 
       {/* ── Modal subir documento ── */}
       {modalSubir && (
-        <div className="modal-fondo">
-          <div className="modal-card">
-            <h3 className="modal-titulo">Subir documento</h3>
-            <form onSubmit={handleSubir}>
-              <div className="form-grid">
-                <div className="campo-form">
-                  <label>Título *</label>
-                  <input required value={formDoc.Titulo}
-                    onChange={(e) => setFormDoc({ ...formDoc, Titulo: e.target.value })}
-                    placeholder="Nombre del documento" />
-                </div>
-                <div className="campo-form">
-                  <label>Categoría *</label>
-                  <select value={formDoc.IdCategoria}
-                    onChange={(e) => setFormDoc({ ...formDoc, IdCategoria: e.target.value })}>
-                    {categorias.map((c) => (
-                      <option key={c.id} value={c.id}>{c.nombre}</option>
-                    ))}
-                  </select>
-                </div>
-                {(usuario?.es_area_general === true || usuario?.es_area_general === 'true' || usuario?.es_area_general === 'True') && (
-                  <div className="campo-form">
-                    <label>Área de destino</label>
-                    <select value={formDoc.IdArea}
-                      onChange={(e) => setFormDoc({ ...formDoc, IdArea: e.target.value })}>
-                      <option value="">— General (visible para todas las áreas) —</option>
-                      {areas.map((a) => (
-                        <option key={a.id} value={a.id}>{a.nombre}</option>
-                      ))}
-                    </select>
-                    <span style={{ fontSize: '0.75rem', fontStyle: 'italic',
-                      color: formDoc.IdArea ? '#fbbf24' : '#4ade80' }}>
-                      {formDoc.IdArea
-                        ? `📌 Solo visible para: ${areas.find(a => String(a.id) === String(formDoc.IdArea))?.nombre || 'área seleccionada'}`
-                        : '🌐 Visible para TODAS las áreas (área General)'}
-                    </span>
-                  </div>
-                )}
-                <div className="campo-form">
-                  <label>Etiquetas <span style={{ fontWeight: 400, color: '#9ca3af' }}>(separa con comas)</span></label>
-                  <input value={etiquetasInput}
-                    onChange={(e) => setEtiquetasInput(e.target.value)}
-                    placeholder="calidad, iso, manual…" />
-                </div>
-                <div className="campo-form" style={{ gridColumn: '1 / -1' }}>
-                  <label>Archivo PDF</label>
-                  <input type="file" accept=".pdf" onChange={(e) => setArchivo(e.target.files[0])} />
-                </div>
-                {!archivo && (
-                  <div className="campo-form" style={{ gridColumn: '1 / -1' }}>
-                    <label>O escribe el contenido con formato</label>
-                    <EditorTexto value={formDoc.ContenidoTexto}
-                      onChange={(html) => setFormDoc({ ...formDoc, ContenidoTexto: html })}
-                      placeholder="Escribe el contenido del documento aquí..." />
-                  </div>
-                )}
+        <div className="modal fade show" style={{ display: 'block', backgroundColor: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(4px)' }} tabIndex="-1" onClick={() => setModalSubir(false)}>
+          <div className="modal-dialog modal-lg modal-dialog-centered" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-content">
+              <div className="modal-header">
+                <h5 className="modal-title">
+                  <i className="bi bi-file-earmark-plus-fill" style={{ marginRight: '8px', color: 'var(--accent)' }}></i>
+                  Subir documento
+                </h5>
+                <button type="button" className="btn-close" onClick={() => setModalSubir(false)} aria-label="Cerrar"></button>
               </div>
-              {errorSubir && <div className="alerta-error" style={{ marginTop: '1rem' }}>{errorSubir}</div>}
-              {okSubir    && <div className="alerta-ok"    style={{ marginTop: '1rem' }}>{okSubir}</div>}
-              <div className="modal-acciones">
-                <button type="button" className="btn-secundario" onClick={() => setModalSubir(false)}>Cancelar</button>
-                <button type="submit" className="btn-primario" disabled={subiendoDoc}>
-                  {subiendoDoc ? 'Subiendo...' : 'Subir documento'}
-                </button>
-              </div>
-            </form>
+              <form onSubmit={handleSubir}>
+                <div className="modal-body">
+                  <div className="form-grid">
+                    <div className="campo-form">
+                      <label>Título *</label>
+                      <input required value={formDoc.Titulo}
+                        onChange={(e) => setFormDoc({ ...formDoc, Titulo: e.target.value })}
+                        placeholder="Nombre del documento" />
+                    </div>
+                    <div className="campo-form">
+                      <label>Categoría *</label>
+                      <select value={formDoc.IdCategoria}
+                        onChange={(e) => setFormDoc({ ...formDoc, IdCategoria: e.target.value })}>
+                        {categorias.map((c) => (
+                          <option key={c.id} value={c.id}>{c.nombre}</option>
+                        ))}
+                      </select>
+                    </div>
+                    {(usuario?.es_area_general === true || usuario?.es_area_general === 'true' || usuario?.es_area_general === 'true') && (
+                      <div className="campo-form">
+                        <label>Área de destino</label>
+                        <select value={formDoc.IdArea}
+                          onChange={(e) => setFormDoc({ ...formDoc, IdArea: e.target.value })}>
+                          <option value="">— General (visible para todas las áreas) —</option>
+                          {areas.map((a) => (
+                            <option key={a.id} value={a.id}>{a.nombre}</option>
+                          ))}
+                        </select>
+                        <span style={{ fontSize: '0.75rem', fontStyle: 'italic',
+                          color: formDoc.IdArea ? '#fbbf24' : '#4ade80' }}>
+                          {formDoc.IdArea
+                            ? `📌 Solo visible para: ${areas.find(a => String(a.id) === String(formDoc.IdArea))?.nombre || 'área seleccionada'}`
+                            : '🌐 Visible para TODAS las áreas (área General)'}
+                        </span>
+                      </div>
+                    )}
+                    <div className="campo-form">
+                      <label>Etiquetas <span style={{ fontWeight: 400, color: '#9ca3af' }}>(separa con comas)</span></label>
+                      <input value={etiquetasInput}
+                        onChange={(e) => setEtiquetasInput(e.target.value)}
+                        placeholder="calidad, iso, manual…" />
+                    </div>
+                    <div className="campo-form" style={{ gridColumn: '1 / -1' }}>
+                      <label>Archivo PDF</label>
+                      <input type="file" accept=".pdf" onChange={(e) => setArchivo(e.target.files[0])} />
+                    </div>
+                    {!archivo && (
+                      <div className="campo-form" style={{ gridColumn: '1 / -1' }}>
+                        <label>O escribe el contenido con formato</label>
+                        <EditorTexto value={formDoc.ContenidoTexto}
+                          onChange={(html) => setFormDoc({ ...formDoc, ContenidoTexto: html })}
+                          placeholder="Escribe el contenido del documento aquí..." />
+                      </div>
+                    )}
+                  </div>
+                  {errorSubir && <div className="alerta-error" style={{ marginTop: '1rem' }}>{errorSubir}</div>}
+                  {okSubir    && <div className="alerta-ok"    style={{ marginTop: '1rem' }}>{okSubir}</div>}
+                </div>
+                <div className="modal-footer">
+                  <button type="button" className="btn-secundario" onClick={() => setModalSubir(false)}>Cancelar</button>
+                  <button type="submit" className="btn-primario" disabled={subiendoDoc}>
+                    {subiendoDoc ? 'Subiendo...' : 'Subir documento'}
+                  </button>
+                </div>
+              </form>
+            </div>
           </div>
         </div>
       )}
 
       {/* ── Modal flujo ── */}
       {modalFlujo && (
-        <div className="modal-fondo" onClick={() => setModalFlujo(false)}>
-          <div className="modal-card" style={{ maxWidth: '640px' }} onClick={(e) => e.stopPropagation()}>
-            <h3 className="modal-titulo">Flujo — {flujoData?.tituloDocumento ?? '...'}</h3>
-            {errorFlujo && <div className="alerta-error">{errorFlujo}</div>}
-            {okFlujo    && <div className="alerta-ok">{okFlujo}</div>}
-            {cargFlujo ? <p className="cargando-txt">Cargando...</p> : flujoData ? (
-              <>
-                <div style={{ display: 'flex', gap: '10px', marginBottom: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
-                  <span className="badge badge-gris">v{flujoData.version}</span>
-                  {flujoData.estadoActual === 'Aprobado' && <span className="badge badge-verde">Aprobado</span>}
-                  {flujoData.estadoActual === 'Borrador'  && <span className="badge badge-naranja">Borrador</span>}
-                  {flujoData.haySolicitudActiva           && <span className="badge badge-azul">Revisión pendiente</span>}
-                </div>
-                {flujoData.firmasRequeridas > 0 && (
-                  <div style={{ marginBottom: '1rem', padding: '10px 12px', background: 'rgba(79,142,247,0.08)', border: '1px solid rgba(79,142,247,0.2)', borderRadius: '8px' }}>
-                    <BarraFirmas requeridas={flujoData.firmasRequeridas} obtenidas={flujoData.firmasObtenidas} />
-                  </div>
-                )}
-                {flujoData.historial?.length === 0 ? (
-                  <p className="sin-datos">Sin historial de aprobación aún.</p>
-                ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '1rem' }}>
-                    {flujoData.historial?.map((h) => (
-                      <div key={h.idFlujo} className="card" style={{ marginBottom: 0 }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '6px' }}>
-                          <div>
-                            {h.areaRequerida && (
-                              <span style={{ fontSize: '0.8rem', fontWeight: 600 }}>Área: {h.areaRequerida}</span>
-                            )}
-                            <span style={{ marginLeft: h.areaRequerida ? '8px' : 0, color: '#6b7280', fontSize: '0.8rem' }}>
-                              · Solicitado por: {h.nombreSolicitante}
-                            </span>
-                          </div>
-                          {h.decision === 'Pendiente'  && <span className="badge badge-naranja">Pendiente</span>}
-                          {h.decision === 'Aprobado'   && <span className="badge badge-verde">Aprobado</span>}
-                          {h.decision === 'Rechazado'  && <span className="badge badge-rojo">Rechazado</span>}
-                          {h.decision === 'Cancelado'  && <span className="badge badge-gris">Cancelado</span>}
-                        </div>
-                        {h.nombreRevisor !== 'Pendiente de revisión' && (
-                          <div style={{ fontSize: '0.875rem', color: '#6b7280', marginTop: '4px' }}>
-                            Revisado por: {h.nombreRevisor}
-                          </div>
-                        )}
-                        {h.comentarios && (
-                          <div style={{ marginTop: '6px', fontSize: '0.875rem', background: '#f9fafb', padding: '8px', borderRadius: '6px' }}>
-                            "{h.comentarios}"
-                          </div>
-                        )}
-                        {h.decision === 'Pendiente' && (
-                          <div style={{ marginTop: '10px' }}>
-                            <button className="btn-primario" onClick={() => abrirResolver(h.idFlujo)}>
-                              Resolver esta solicitud
-                            </button>
-                          </div>
-                        )}
+        <div className="modal fade show" style={{ display: 'block', backgroundColor: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(4px)' }} tabIndex="-1" onClick={() => setModalFlujo(false)}>
+          <div className="modal-dialog modal-dialog-centered modal-lg" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-content">
+              <div className="modal-header">
+                <h5 className="modal-title">
+                  <i className="bi bi-diagram-3-fill" style={{ marginRight: '8px', color: 'var(--accent)' }}></i>
+                  Flujo — {flujoData?.tituloDocumento ?? '...'}
+                </h5>
+                <button type="button" className="btn-close" onClick={() => setModalFlujo(false)} aria-label="Cerrar"></button>
+              </div>
+              <div className="modal-body">
+                {errorFlujo && <div className="alerta-error">{errorFlujo}</div>}
+                {okFlujo    && <div className="alerta-ok">{okFlujo}</div>}
+                {cargFlujo ? <p className="cargando-txt">Cargando...</p> : flujoData ? (
+                  <>
+                    <div style={{ display: 'flex', gap: '10px', marginBottom: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                      <span className="badge badge-gris">v{flujoData.version}</span>
+                      {flujoData.estadoActual === 'Aprobado' && <span className="badge badge-verde">Aprobado</span>}
+                      {flujoData.estadoActual === 'Borrador'  && <span className="badge badge-naranja">Borrador</span>}
+                      {flujoData.haySolicitudActiva           && <span className="badge badge-azul">Revisión pendiente</span>}
+                    </div>
+                    {flujoData.firmasRequeridas > 0 && (
+                      <div style={{ marginBottom: '1rem', padding: '10px 12px', background: 'rgba(79,142,247,0.08)', border: '1px solid rgba(79,142,247,0.2)', borderRadius: '8px' }}>
+                        <BarraFirmas requeridas={flujoData.firmasRequeridas} obtenidas={flujoData.firmasObtenidas} />
                       </div>
-                    ))}
-                  </div>
-                )}
-                {flujoData.estadoActual === 'Borrador' && !flujoData.haySolicitudActiva && (
-                  <button className="btn-primario" onClick={async () => {
-                    await handleSolicitar(flujoData.idDocumento)
-                    const res = await api.get(`/Documentos/${flujoData.idDocumento}/flujo`)
-                    setFlujoData(res.data)
-                  }}>
-                    Solicitar aprobación
-                  </button>
-                )}
-              </>
-            ) : null}
-            <div className="modal-acciones">
-              <button className="btn-secundario" onClick={() => setModalFlujo(false)}>Cerrar</button>
+                    )}
+                    {flujoData.historial?.length === 0 ? (
+                      <p className="sin-datos">Sin historial de aprobación aún.</p>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '1rem' }}>
+                        {flujoData.historial?.map((h) => (
+                          <div key={h.idFlujo} className="card" style={{ marginBottom: 0 }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '6px' }}>
+                              <div>
+                                {h.areaRequerida && (
+                                  <span style={{ fontSize: '0.8rem', fontWeight: 600 }}>Área: {h.areaRequerida}</span>
+                                )}
+                                <span style={{ marginLeft: h.areaRequerida ? '8px' : 0, color: '#6b7280', fontSize: '0.8rem' }}>
+                                  · Solicitado por: {h.nombreSolicitante}
+                                </span>
+                              </div>
+                              {h.decision === 'Pendiente'  && <span className="badge badge-naranja">Pendiente</span>}
+                              {h.decision === 'Aprobado'   && <span className="badge badge-verde">Aprobado</span>}
+                              {h.decision === 'Rechazado'  && <span className="badge badge-rojo">Rechazado</span>}
+                              {h.decision === 'Cancelado'  && <span className="badge badge-gris">Cancelado</span>}
+                            </div>
+                            {h.nombreRevisor !== 'Pendiente de revisión' && (
+                              <div style={{ fontSize: '0.875rem', color: '#6b7280', marginTop: '4px' }}>
+                                Revisado por: {h.nombreRevisor}
+                              </div>
+                            )}
+                            {h.comentarios && (
+                              <div style={{ marginTop: '6px', fontSize: '0.875rem', background: 'var(--bg-base)', border: '1px solid var(--border-light)', padding: '8px', borderRadius: '6px' }}>
+                                "{h.comentarios}"
+                              </div>
+                            )}
+                            {h.decision === 'Pendiente' && (
+                              <div style={{ marginTop: '10px' }}>
+                                <button className="btn-primario" onClick={() => abrirResolver(h.idFlujo)}>
+                                  Resolver esta solicitud
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {flujoData.estadoActual === 'Borrador' && !flujoData.haySolicitudActiva && (
+                      <button className="btn-primario" onClick={async () => {
+                        await handleSolicitar(flujoData.idDocumento)
+                        const res = await api.get(`/Documentos/${flujoData.idDocumento}/flujo`)
+                        setFlujoData(res.data)
+                      }}>
+                        Solicitar aprobación
+                      </button>
+                    )}
+                  </>
+                ) : null}
+              </div>
+              <div className="modal-footer">
+                <button className="btn-secundario" onClick={() => setModalFlujo(false)}>Cerrar</button>
+              </div>
             </div>
           </div>
         </div>
@@ -572,78 +620,99 @@ export default function SeccionDocumentos() {
 
       {/* ── Modal resolver aprobación ── */}
       {modalRes && (
-        <div className="modal-fondo" onClick={() => setModalRes(false)}>
-          <div className="modal-card" style={{ maxWidth: '440px' }} onClick={(e) => e.stopPropagation()}>
-            <h3 className="modal-titulo">Resolver solicitud #{idFlujoRes}</h3>
-            <form onSubmit={handleResolver}>
-              <div className="form-grid una-col">
-                <div className="campo-form">
-                  <label>Decisión</label>
-                  <select value={formRes.Decision}
-                    onChange={(e) => setFormRes({ ...formRes, Decision: e.target.value })}>
-                    <option value="Aprobado">Aprobado</option>
-                    <option value="Rechazado">Rechazado</option>
-                  </select>
-                </div>
-                <div className="campo-form">
-                  <label>Comentarios {formRes.Decision === 'Rechazado' ? '*' : '(opcional)'}</label>
-                  <textarea required={formRes.Decision === 'Rechazado'}
-                    value={formRes.Comentarios}
-                    onChange={(e) => setFormRes({ ...formRes, Comentarios: e.target.value })}
-                    placeholder="Describe el motivo de tu decisión..." />
-                </div>
+        <div className="modal fade show" style={{ display: 'block', backgroundColor: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(4px)' }} tabIndex="-1" onClick={() => setModalRes(false)}>
+          <div className="modal-dialog modal-dialog-centered" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-content">
+              <div className="modal-header">
+                <h5 className="modal-title">
+                  <i className="bi bi-check-circle-fill" style={{ marginRight: '8px', color: 'var(--accent)' }}></i>
+                  Resolver solicitud #{idFlujoRes}
+                </h5>
+                <button type="button" className="btn-close" onClick={() => setModalRes(false)} aria-label="Cerrar"></button>
               </div>
-              <div className="modal-acciones">
-                <button type="button" className="btn-secundario" onClick={() => setModalRes(false)}>Cancelar</button>
-                <button type="submit"
-                  className={formRes.Decision === 'Aprobado' ? 'btn-primario' : 'btn-peligro'}
-                  disabled={resolviendoF}>
-                  {resolviendoF ? 'Guardando...' : `Confirmar ${formRes.Decision}`}
-                </button>
-              </div>
-            </form>
+              <form onSubmit={handleResolver}>
+                <div className="modal-body">
+                  <div className="form-grid una-col">
+                    <div className="campo-form">
+                      <label>Decisión</label>
+                      <select value={formRes.Decision}
+                        onChange={(e) => setFormRes({ ...formRes, Decision: e.target.value })}>
+                        <option value="Aprobado">Aprobado</option>
+                        <option value="Rechazado">Rechazado</option>
+                      </select>
+                    </div>
+                    <div className="campo-form">
+                      <label>Comentarios {formRes.Decision === 'Rechazado' ? '*' : '(opcional)'}</label>
+                      <textarea required={formRes.Decision === 'Rechazado'}
+                        value={formRes.Comentarios}
+                        onChange={(e) => setFormRes({ ...formRes, Comentarios: e.target.value })}
+                        placeholder="Describe el motivo de tu decisión..." />
+                    </div>
+                  </div>
+                </div>
+                <div className="modal-footer">
+                  <button type="button" className="btn-secundario" onClick={() => setModalRes(false)}>Cancelar</button>
+                  <button type="submit"
+                    className={formRes.Decision === 'Aprobado' ? 'btn-primario' : 'btn-peligro'}
+                    disabled={resolviendoF}>
+                    {resolviendoF ? 'Guardando...' : `Confirmar ${formRes.Decision}`}
+                  </button>
+                </div>
+              </form>
+            </div>
           </div>
         </div>
       )}
 
       {/* ── Modal nueva versión ── */}
       {modalNuevaVer && (
-        <div className="modal-fondo" onClick={() => setModalNV(false)}>
-          <div className="modal-card" style={{ maxWidth: '480px' }} onClick={(e) => e.stopPropagation()}>
-            <h3 className="modal-titulo">Nueva versión — {docSelVer?.titulo}</h3>
-            <p style={{ fontSize: '0.875rem', color: '#854F0B', background: '#fef3c7', padding: '8px 12px', borderRadius: '8px', marginBottom: '1rem' }}>
-              El documento regresará a <strong>Borrador</strong> y necesitará una nueva aprobación.
-            </p>
-            <form onSubmit={handleSubirVersion}>
-              <div className="form-grid una-col">
-                <div className="campo-form">
-                  <label>¿Qué cambió en esta versión? *</label>
-                  <textarea required value={formVer.ComentarioCambio}
-                    onChange={(e) => setFormVer({ ...formVer, ComentarioCambio: e.target.value })}
-                    placeholder="Ej: Se actualizó la sección 3.2..." />
-                </div>
-                <div className="campo-form">
-                  <label>Nuevo archivo PDF</label>
-                  <input type="file" accept=".pdf" onChange={(e) => setArchivoVer(e.target.files[0])} />
-                </div>
-                {!archivoVer && (
-                  <div className="campo-form">
-                    <label>O escribe el nuevo contenido con formato</label>
-                    <EditorTexto value={formVer.ContenidoTexto}
-                      onChange={(html) => setFormVer({ ...formVer, ContenidoTexto: html })}
-                      placeholder="Nuevo contenido del documento..." />
+        <div className="modal fade show" style={{ display: 'block', backgroundColor: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(4px)' }} tabIndex="-1" onClick={() => setModalNV(false)}>
+          <div className="modal-dialog modal-dialog-centered modal-lg" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-content">
+              <div className="modal-header">
+                <h5 className="modal-title">
+                  <i className="bi bi-file-earmark-arrow-up-fill" style={{ marginRight: '8px', color: 'var(--accent)' }}></i>
+                  Nueva versión — {docSelVer?.titulo}
+                </h5>
+                <button type="button" className="btn-close" onClick={() => setModalNV(false)} aria-label="Cerrar"></button>
+              </div>
+              <form onSubmit={handleSubirVersion}>
+                <div className="modal-body">
+                  <div className="alerta-error" style={{ marginBottom: '1rem', borderLeftColor: '#f59e0b', color: '#fbbf24', background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)', borderLeftWidth: '3px' }}>
+                    <i className="bi bi-exclamation-triangle-fill" style={{ fontSize: '1.1rem', marginRight: '8px' }}></i>
+                    <span>El documento regresará a <strong>Borrador</strong> y necesitará una nueva aprobación.</span>
                   </div>
-                )}
-              </div>
-              {errorNV && <div className="alerta-error" style={{ marginTop: '1rem' }}>{errorNV}</div>}
-              {okNV    && <div className="alerta-ok"    style={{ marginTop: '1rem' }}>{okNV}</div>}
-              <div className="modal-acciones">
-                <button type="button" className="btn-secundario" onClick={() => setModalNV(false)}>Cancelar</button>
-                <button type="submit" className="btn-primario" disabled={subiendoVer}>
-                  {subiendoVer ? 'Subiendo...' : 'Subir versión'}
-                </button>
-              </div>
-            </form>
+                  <div className="form-grid una-col">
+                    <div className="campo-form">
+                      <label>¿Qué cambió en esta versión? *</label>
+                      <textarea required value={formVer.ComentarioCambio}
+                        onChange={(e) => setFormVer({ ...formVer, ComentarioCambio: e.target.value })}
+                        placeholder="Ej: Se actualizó la sección 3.2..." />
+                    </div>
+                    <div className="campo-form">
+                      <label>Nuevo archivo PDF</label>
+                      <input type="file" accept=".pdf" onChange={(e) => setArchivoVer(e.target.files[0])} />
+                    </div>
+                    {!archivoVer && (
+                      <div className="campo-form">
+                        <label>O escribe el nuevo contenido con formato</label>
+                        <EditorTexto value={formVer.ContenidoTexto}
+                          onChange={(html) => setFormVer({ ...formVer, ContenidoTexto: html })}
+                          placeholder="Nuevo contenido del documento..." />
+                      </div>
+                    )}
+                  </div>
+                  {errorNV && <div className="alerta-error" style={{ marginTop: '1rem' }}>{errorNV}</div>}
+                  {okNV    && <div className="alerta-ok"    style={{ marginTop: '1rem' }}>{okNV}</div>}
+                </div>
+                <div className="modal-footer">
+                  <button type="button" className="btn-secundario" onClick={() => setModalNV(false)}>Cancelar</button>
+                  <button type="submit" className="btn-primario" disabled={subiendoVer}>
+                    {subiendoVer ? 'Subiendo...' : 'Subir versión'}
+                  </button>
+                </div>
+              </form>
+            </div>
           </div>
         </div>
       )}
